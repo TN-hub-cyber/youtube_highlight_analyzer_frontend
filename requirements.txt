@@ -1,0 +1,7 @@
+streamlit==1.30.0
+supabase==1.0.3
+plotly==5.18.0
+streamlit-plotly-events==0.0.6
+pandas==2.1.3
+streamlit-javascript==0.1.5
+python-dotenv==1.0.0
