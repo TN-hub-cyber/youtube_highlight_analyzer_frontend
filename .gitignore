@@ -1,4 +1,4 @@
-# SpecStory explanation file
+.specstory/
 .specstory/.what-is-this.md
 venv/
 .pycache/

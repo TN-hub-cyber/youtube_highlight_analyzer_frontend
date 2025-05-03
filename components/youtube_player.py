@@ -2,7 +2,8 @@ import streamlit as st
 import streamlit.components.v1 as components
 from utils.formatting import format_time
 
-def youtube_player(video_id, width=700, height=400, start_seconds=0, auto_play=True):
+def youtube_player(video_id, width=700, height=400, start_seconds=0, auto_play=True, 
+                   show_seek_buttons=False, seek_points=None):
     """
     YouTube IFrame Player APIを使用したカスタムプレイヤーコンポーネント
     
@@ -12,6 +13,8 @@ def youtube_player(video_id, width=700, height=400, start_seconds=0, auto_play=T
         height: プレイヤーの高さ
         start_seconds: 開始位置（秒）
         auto_play: 自動再生するかどうか
+        show_seek_buttons: シークボタンを表示するかどうか
+        seek_points: シークボタンで移動する時間点のリスト [(秒, ラベル), ...]
     
     Returns:
         現在の再生位置（秒）を返すコンポーネント
@@ -20,23 +23,92 @@ def youtube_player(video_id, width=700, height=400, start_seconds=0, auto_play=T
     if 'current_time' not in st.session_state:
         st.session_state.current_time = start_seconds
     
+    # シーク命令がある場合、start_secondsにセットする
+    if 'sec' in st.session_state:
+        start_seconds = st.session_state['sec']
+        del st.session_state['sec']  # 使用したらクリア
+    
+    # シークボタンのHTML生成（必ず表示されるようにデバッグ情報も追加）
+    seek_buttons_html = ""
+    if show_seek_buttons and seek_points:
+        seek_buttons_html = f'''
+        <div class="seek-buttons" style="margin-top:10px;display:flex;flex-wrap:wrap;gap:5px;">
+            <div style="width:100%;margin-bottom:5px;font-weight:bold;color:#444;font-size:14px;">
+                チャプタージャンプ ({len(seek_points)}件)
+            </div>
+        '''
+        
+        # ボタン数のカウンター（デバッグ用）
+        button_count = 0
+        
+        for i, (sec, label) in enumerate(seek_points):
+            # HTMLとJSの安全なエスケープ処理
+            safe_label = str(label).replace('"', '&quot;').replace("'", "&apos;")
+            
+            # すべてのボタンを表示（制限なし）
+            seek_buttons_html += f'''
+            <button onclick="seekTo({sec})" 
+                    style="padding:5px 8px;background:#f0f0f0;border:1px solid #ddd;border-radius:4px;cursor:pointer;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:200px;">
+                {safe_label}
+            </button>
+            '''
+            button_count += 1
+        
+        # デバッグ情報を追加（開発中のみ、後で削除可能）
+        seek_buttons_html += f'''
+            <script>
+                console.log("シークボタン生成完了: {button_count}個のボタンを表示");
+            </script>
+        </div>
+        '''
+    
     # JavaScriptのコード
     player_code = f"""
-    <div id="player" style="width:{width}px;height:{height}px;margin:0 auto;"></div>
+    <div id="youtube_player_container" style="width:{width}px;margin:0 auto;">
+        <div id="player" style="width:{width}px;height:{height}px;"></div>
+        {seek_buttons_html}
+    </div>
     
     <script>
+        // グローバル変数
+        var player;
+        var playerReady = false;
+        var lastTimeUpdate = 0;
+        var updateInterval = 500; // 更新間隔（ミリ秒）
+        
+        // シーク関数の定義（フレーム内で直接使用できる）
+        function seekTo(seconds) {{
+            console.log('seekTo called with seconds:', seconds);
+            if (player && playerReady) {{
+                try {{
+                    player.seekTo(seconds);
+                    player.playVideo();
+                    return true;
+                }} catch (e) {{
+                    console.error('Seek error:', e);
+                    return false;
+                }}
+            }} else {{
+                console.warn('Player not ready yet, cannot seek');
+                return false;
+            }}
+        }};
+        
+        // グローバルなシーク関数も定義（外部スクリプトからの直接アクセス用）
+        window.seekToYouTubeTime = seekTo;
+
         // YouTubeプレイヤーAPI読み込み
         var tag = document.createElement('script');
         tag.src = "https://www.youtube.com/iframe_api";
         var firstScriptTag = document.getElementsByTagName('script')[0];
         firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
         
-        var player;
-        var lastTimeUpdate = 0;
-        var updateInterval = 500; // 更新間隔（ミリ秒）
+        // シークキューを作成（プレイヤー準備前に命令を受け取った場合用）
+        var seekQueue = [];
         
         // プレイヤー初期化
         function onYouTubeIframeAPIReady() {{
+            console.log('YouTube IFrame API Ready - プレイヤー初期化中');
             player = new YT.Player('player', {{
                 videoId: '{video_id}',
                 playerVars: {{
@@ -48,15 +120,51 @@ def youtube_player(video_id, width=700, height=400, start_seconds=0, auto_play=T
                 }},
                 events: {{
                     'onReady': onPlayerReady,
-                    'onStateChange': onPlayerStateChange
+                    'onStateChange': onPlayerStateChange,
+                    'onError': onPlayerError
                 }}
             }});
+            
+            // グローバル関数としてシーク機能を公開（直接呼び出し用）
+            window.seekYouTubePlayerTo = function(seconds) {{
+                if (player && playerReady) {{
+                    console.log("seekYouTubePlayerTo: " + seconds + "秒に移動");
+                    player.seekTo(seconds);
+                    if (player.getPlayerState() !== YT.PlayerState.PLAYING) {{
+                        player.playVideo();
+                    }}
+                    return true;
+                }} else {{
+                    console.log("プレイヤー未準備: シーク命令をキューに追加 " + seconds + "秒");
+                    seekQueue.push(seconds);
+                    return false;
+                }}
+            }};
+        }}
+        
+        // エラー処理
+        function onPlayerError(event) {{
+            console.error('YouTubeプレイヤーエラー:', event.data);
         }}
         
         // プレイヤー準備完了時
         function onPlayerReady(event) {{
+            console.log('YouTubeプレイヤー準備完了');
+            playerReady = true;
+            
             // ティック機能を開始
             setInterval(tick, updateInterval);
+            
+            // キューに溜まったシーク命令を処理
+            if (seekQueue.length > 0) {{
+                console.log("キューに" + seekQueue.length + "個のシーク命令があります");
+                var lastSeek = seekQueue[seekQueue.length - 1];
+                player.seekTo(lastSeek);
+                if (player.getPlayerState() !== YT.PlayerState.PLAYING) {{
+                    player.playVideo();
+                }}
+                seekQueue = [];
+            }}
         }}
         
         // プレイヤー状態変更時
@@ -77,34 +185,62 @@ def youtube_player(video_id, width=700, height=400, start_seconds=0, auto_play=T
                     lastTimeUpdate = currentTime;
                     
                     // Streamlitに現在位置を通知
-                    window.parent.postMessage({{
-                        type: 'tick',
-                        sec: currentTime
-                    }}, '*');
-                    
-                    // Componentへのメッセージ（SetValue用）
-                    window.parent.postMessage({{
-                        type: 'streamlit:setComponentValue',
-                        value: currentTime
-                    }}, '*');
+                    try {{
+                        window.parent.postMessage({{
+                            type: 'tick',
+                            sec: currentTime
+                        }}, '*');
+                        
+                        // Componentへのメッセージ（SetValue用）
+                        window.parent.postMessage({{
+                            type: 'streamlit:setComponentValue',
+                            value: currentTime
+                        }}, '*');
+                    }} catch (err) {{
+                        console.error('現在位置の通知中にエラー:', err);
+                    }}
                 }}
             }}
         }}
         
-        // シーク命令を受け取る
+        // シーク命令を受け取る - 複数のメッセージ形式に対応
         window.addEventListener('message', function(e) {{
-            if (e.data.type === 'seek' && player) {{
-                player.seekTo(e.data.sec);
-                if (player.getPlayerState() != YT.PlayerState.PLAYING) {{
-                    player.playVideo(); // シーク後に再生開始
+            try {{
+                // 文字列データの場合はJSONとしてパース
+                var data = e.data;
+                if (typeof data === 'string') {{
+                    try {{
+                        data = JSON.parse(data);
+                    }} catch (parseErr) {{
+                        // パースエラーは無視（文字列形式でない場合）
+                    }}
                 }}
+                
+                // TypeがSeekの場合
+                if (data && data.type === 'seek' && typeof data.sec !== 'undefined') {{
+                    console.log('シーク命令を受信: ' + data.sec + '秒');
+                    window.seekYouTubePlayerTo(data.sec);
+                }}
+                
+                // CommandがSeekの場合（代替形式）
+                else if (data && data.command === 'seek' && typeof data.seconds !== 'undefined') {{
+                    console.log('コマンド形式のシーク命令を受信: ' + data.seconds + '秒');
+                    window.seekYouTubePlayerTo(data.seconds);
+                }}
+                
+                // その他のメッセージは無視
+            }} catch (err) {{
+                console.error('メッセージ処理中にエラー:', err);
             }}
         }});
     </script>
     """
     
+    # プレイヤーコンポーネントの高さを調整（ボタン表示スペース追加）
+    component_height = height + 80 if show_seek_buttons and seek_points else height
+    
     # プレイヤーを表示し、現在の再生位置を取得
-    component_instance = components.html(player_code, height=height, width=width)
+    component_instance = components.html(player_code, height=component_height, width=width)
     
     # component_instanceの戻り値ではなく、セッション状態から現在の時間を取得
     if 'current_time' not in st.session_state:
@@ -153,69 +289,66 @@ def create_seek_command(container=st):
     if 'sec' in st.session_state:
         sec = st.session_state['sec']
         
-        # シーク命令を送信するJavaScript（デバッグ情報を追加）
+        # 大幅に改善したシーク命令を送信するJavaScript
         js_code = f"""
         <script>
         // デバッグ情報
         console.log('シーク命令: {sec}秒に移動します');
         
-        // YouTubeプレイヤーにシーク命令を送信
-        var message = {{
-            type: 'seek',
-            sec: {sec}
-        }};
-        
-        // スマートなセレクタを使用してYouTubeプレイヤーのiframeを探す
-        function findYouTubeIframe() {{
-            // ID付きのYouTubeプレイヤー要素を探す
-            var playerDiv = document.getElementById('player');
-            if (playerDiv && playerDiv.querySelector('iframe')) {{
-                return playerDiv.querySelector('iframe');
-            }}
-            
-            // class名でYouTube iframeを探す
-            var youtubeFrames = document.querySelectorAll('iframe[src*="youtube.com"]');
-            if (youtubeFrames.length > 0) {{
-                return youtubeFrames[0];
-            }}
-            
-            // 全てのiframeを返す（最後の手段）
-            return document.getElementsByTagName('iframe');
-        }}
-        
-        var youtubeIframes = findYouTubeIframe();
-        
-        // 単一の要素の場合
-        if (youtubeIframes.tagName === 'IFRAME') {{
-            console.log('YouTube iframeが見つかりました');
-            try {{
-                youtubeIframes.contentWindow.postMessage(message, '*');
-                console.log('シーク命令を送信しました:', message);
-            }} catch(err) {{
-                console.error('シーク命令の送信中にエラーが発生しました:', err);
-            }}
-        }} 
-        // 複数要素のコレクションの場合
-        else if (youtubeIframes.length > 0) {{
-            console.log('iframeが' + youtubeIframes.length + '個見つかりました');
-            for (var i = 0; i < youtubeIframes.length; i++) {{
-                try {{
-                    youtubeIframes[i].contentWindow.postMessage(message, '*');
-                    console.log('iframe[' + i + ']にシーク命令を送信しました');
-                }} catch(err) {{
-                    console.error('iframe[' + i + ']へのシーク命令の送信中にエラー:', err);
+        // グローバルプレイヤー変数を探す試み
+        function seekToPosition() {{
+            // 方法1: グローバルなYouTubeプレイヤーオブジェクトを使用（最も信頼性が高い）
+            if (typeof player !== 'undefined' && player && typeof player.seekTo === 'function') {{
+                console.log('グローバルプレイヤーオブジェクトを使用します');
+                player.seekTo({sec});
+                if (player.getPlayerState() !== 1) {{ // 1はYT.PlayerState.PLAYING
+                    player.playVideo();
                 }}
+                return true;
             }}
-        }} else {{
-            console.error('YouTubeプレイヤーIFrameが見つかりません');
+            
+            // 方法2: YouTubeインターフェースを直接探す
+            try {{
+                var youtubeIframes = document.querySelectorAll('iframe[src*="youtube.com"]');
+                if (youtubeIframes.length > 0) {{
+                    for (var i = 0; i < youtubeIframes.length; i++) {{
+                        // iframeのYouTubeプレイヤーオブジェクトにアクセスを試みる
+                        // 注：Same-Originポリシーにより通常は失敗するが、実験的に試みる
+                        try {{
+                            var target = {{
+                                'command': 'seek',
+                                'seconds': {sec}
+                            }};
+                            youtubeIframes[i].contentWindow.postMessage(JSON.stringify(target), '*');
+                            console.log('YouTube iframe[' + i + ']にシーク命令を送信しました');
+                        }} catch (e) {{
+                            console.log('iframe[' + i + ']へのアクセスに失敗: ' + e);
+                        }}
+                    }}
+                    
+                    // 通信がうまくいかない場合はページをリロード
+                    setTimeout(function() {{
+                        var url = new URL(window.location.href);
+                        url.searchParams.set('t', {sec});
+                        console.log('t={sec}のURLパラメータを付与してリロードします');
+                        // window.location.href = url.toString();
+                    }}, 3000);
+                }}
+            }} catch (err) {{
+                console.error('ブラウザセキュリティ制限によりiframeへの直接アクセスが制限されています:', err);
+            }}
+            
+            return false;
         }}
         
-        // ウィンドウにも送信（iframe内のコードが親ウィンドウをリッスンしている場合）
-        try {{
-            window.postMessage(message, '*');
-            console.log('ウィンドウにもシーク命令を送信しました');
-        }} catch(err) {{
-            console.error('ウィンドウへのシーク命令の送信中にエラー:', err);
+        // 最初の試行
+        var succeeded = seekToPosition();
+        
+        // 失敗した場合は少し遅延して再試行（DOM完全読み込み後）
+        if (!succeeded) {{
+            setTimeout(seekToPosition, 1000);
+            // 3秒後に最終試行
+            setTimeout(seekToPosition, 3000);
         }}
         </script>
         """
@@ -223,7 +356,7 @@ def create_seek_command(container=st):
         # JavaScriptを実行
         container.components.v1.html(js_code, height=0)
         
-        # デバッグ情報（開発時のみ表示）
+        # デバッグ情報（運用環境では無効化）
         # st.info(f"DEBUG: シーク命令 {sec}秒")
         
         # 命令をクリア

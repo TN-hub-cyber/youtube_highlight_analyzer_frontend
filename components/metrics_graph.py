@@ -67,8 +67,19 @@ def display_metrics_graph(metrics_data, current_time=None, height=300, click_ena
                         st.markdown(f"重要度: {score_perc}% (コメント: {comment_count}件)")
                     
                     with col3:
-                        if st.button(f"▶️ #{i+1}", key=f"highlight_{i}"): 
+                        # ユニークなキーを使用してボタン重複を避ける
+                        btn_key = f"highlight_btn_{i}_{hash(str(highlight['time_seconds']))}"
+                        if st.button(f"▶️ #{i+1}", key=btn_key): 
                             st.session_state['sec'] = highlight['time_seconds']
+                            # 即時シーク実行のためJavaScript呼び出しも追加
+                            st.markdown(f"""
+                            <script>
+                            if(typeof player !== 'undefined') {{
+                                player.seekTo({highlight['time_seconds']});
+                                player.playVideo();
+                            }}
+                            </script>
+                            """, unsafe_allow_html=True)
                             st.rerun()
     
     # クリックイベントの有効・無効を設定
@@ -81,11 +92,33 @@ def display_metrics_graph(metrics_data, current_time=None, height=300, click_ena
         if selected_points:
             clicked_sec = selected_points[0].get('x')
             
-            # シーク命令のためにセッション状態を直接設定
+            # シーク命令のためにセッション状態を設定 & JavaScript直接実行
             if clicked_sec is not None:
-                # 先にst.session_stateをセットして返す（呼び出し元で処理できるようにするため）
-                st.session_state['sec'] = clicked_sec
-                st.rerun()  # 必要に応じて再実行
+                # エラーハンドリングを強化
+                try:
+                    # セッション状態を設定
+                    st.session_state['sec'] = clicked_sec
+                    
+                    # 即時シーク実行のためJavaScript呼び出しも追加
+                    st.markdown(f"""
+                    <script>
+                    console.log("グラフクリック - {clicked_sec}秒にシーク");
+                    // グローバルプレイヤーがある場合は直接呼び出し
+                    if(typeof player !== 'undefined' && player && typeof player.seekTo === 'function') {{
+                        player.seekTo({clicked_sec});
+                        player.playVideo();
+                    }}
+                    // グローバル関数がある場合はそれを呼び出し
+                    else if(typeof seekYouTubePlayerTo === 'function') {{
+                        seekYouTubePlayerTo({clicked_sec});
+                    }}
+                    </script>
+                    """, unsafe_allow_html=True)
+                    
+                    # シーク命令送信のために再読み込み
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"シーク処理中にエラーが発生しました: {e}")
     else:
         # 通常のプロットとして表示
         st.plotly_chart(fig, use_container_width=True)
