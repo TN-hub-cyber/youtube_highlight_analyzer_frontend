@@ -153,6 +153,10 @@ with col1:
         show_seek_buttons=True,  # シークボタンを表示
         seek_points=seek_points   # シークポイントリストを渡す
     )
+    
+    # シーク処理が完了したら変数をクリア
+    if '_seek_sec' in st.session_state:
+        del st.session_state['_seek_sec']
 
 with col2:
     # コントロールパネル
@@ -253,79 +257,63 @@ with tabs[0]:
         if not chapters_df.empty:
             st.markdown(f"#### 全 {len(chapters_df)} チャプター")
             
-            # チャプターテーブルとして表示
-            chapter_table_data = []
-            for _, chapter in chapters_df.iterrows():
+            # テーブル表示
+            table_data = []
+            for i, chapter in enumerate(chapters_data):
+                # 基本データフォーマット
                 time_seconds = chapter['time_seconds']
                 time_str = format_time(time_seconds)
                 title = chapter['title']
                 description = chapter.get('description', '')
                 
-                # テーブル用のデータを準備
-                chapter_table_data.append({
-                    "時間": time_str, 
-                    "タイトル": title, 
+                # テーブル表示用データを収集
+                table_data.append({
+                    "番号": i+1,
+                    "時間": time_str,
+                    "タイトル": title,
                     "説明": description,
-                    "時間（秒）": time_seconds
+                    "秒数": time_seconds  # 内部計算用
                 })
+            
+            # データフレームとしてテーブル表示
+            df = pd.DataFrame(table_data)
+            
+            # ジャンプボタンを追加
+            for i, row in df.iterrows():
+                # 最もシンプルなレイアウト
+                cols = st.columns([1, 2, 8, 1])
                 
-            # DataFrameをテーブルとして表示
-            table_df = pd.DataFrame(chapter_table_data)
+                with cols[0]:
+                    st.write(f"{row['番号']}")
+                    
+                with cols[1]:
+                    st.write(f"{row['時間']}")
+                    
+                with cols[2]:
+                    st.write(f"{row['タイトル']}")
+                    if row['説明']:
+                        st.caption(row['説明'])
+                    
+                with cols[3]:
+                    if st.button("▶", key=f"chapter_{i}"):
+                        # seek_to関数を直接呼び出し
+                        seek_to(row['秒数'])
+                        # 即座に再読み込み
+                        st.rerun()
+                
+                # 視覚的な区切り
+                st.divider()
             
-            # 時間をクリックできるボタンに変換
-            def make_clickable_time(time_str, seconds):
-                # シークボタン付きの時間文字列を返す
-                return f"<div style='display:flex; align-items:center; justify-content:space-between;'><span>{time_str}</span><button onclick=\"parent.postMessage({{type:'seek',sec:{seconds}}}, '*');\" style='background:#f0f0f0; border:1px solid #ccc; border-radius:4px; padding:2px 6px;'>▶️</button></div>"
+            # シンプルなボタンリスト
+            st.subheader("クイックジャンプ")
+            cols = st.columns(4)
+            for i, chapter in enumerate(chapters_data):
+                col_index = i % 4
+                with cols[col_index]:
+                    if st.button(format_time(chapter['time_seconds']), key=f"quick_ch_{i}"):
+                        seek_to(chapter['time_seconds'])
+                        st.rerun()
             
-            # 時間列をクリッカブルにする
-            table_df["時間"] = table_df.apply(lambda row: make_clickable_time(row["時間"], row["時間（秒）"]), axis=1)
-            
-            # 使わない列を削除
-            table_df = table_df.drop("時間（秒）", axis=1)
-            
-            # テーブルとして表示
-            st.markdown("""
-            <style>
-            .chapter-table {
-                width: 100%;
-                border-collapse: collapse;
-            }
-            .chapter-table th {
-                background-color: #f8f9fa;
-                text-align: left;
-                padding: 8px;
-                border-bottom: 2px solid #dee2e6;
-            }
-            .chapter-table td {
-                padding: 8px;
-                border-bottom: 1px solid #dee2e6;
-            }
-            </style>
-            """, unsafe_allow_html=True)
-            
-            # テーブルの下に簡単なシークボタングリッドを表示
-            st.write("### チャプターにジャンプ")
-            
-            # ボタンを3列グリッドで表示
-            cols_per_row = 3
-            row_count = (len(chapters_df) + cols_per_row - 1) // cols_per_row  # 切り上げ割り算
-            
-            for row in range(row_count):
-                cols = st.columns(cols_per_row)
-                for col_idx in range(cols_per_row):
-                    chapter_idx = row * cols_per_row + col_idx
-                    if chapter_idx < len(chapters_df):
-                        chapter = chapters_df.iloc[chapter_idx]
-                        with cols[col_idx]:
-                            # 時間とタイトル（短縮形）の両方を表示するボタン
-                            time_str = format_time(chapter['time_seconds'])
-                            short_title = chapter['title'][:15] + "..." if len(chapter['title']) > 15 else chapter['title']
-                            button_label = f"{time_str} {short_title}"
-                            
-                            if st.button(button_label, key=f"chapter_btn_{chapter['id']}"):
-                                # シーク関数を直接呼び出す
-                                seek_to(chapter['time_seconds'])
-                                st.rerun()
             # ユーザーへの注意表示
             st.markdown("""
             <div style="font-size: 12px; color: #666; margin-top: 10px;">
@@ -422,26 +410,8 @@ with tabs[1]:
                     
                     with col3:
                         if st.button("▶️", key=f"comment_{comment['id']}"):
-                            # セッション変数で設定
-                            time_to_seek = comment['time_seconds']
-                            st.session_state['sec'] = time_to_seek
-                            
-                            # スクリプトを直接実行して即座にシーク
-                            st.markdown(f"""
-                            <script>
-                            console.log("コメントジャンプ: {time_to_seek}秒");
-                            
-                            // 直接グローバル関数を呼び出す
-                            if (typeof seekToYouTubeTime === 'function') {{
-                                seekToYouTubeTime({time_to_seek});
-                            }} else if (typeof player !== 'undefined' && player) {{
-                                player.seekTo({time_to_seek});
-                                player.playVideo();
-                            }}
-                            </script>
-                            """, unsafe_allow_html=True)
-                            
-                            # すぐに再実行して変更を反映
+                            # セッション変数で設定してからリロード
+                            seek_to(comment['time_seconds'])
                             st.rerun()
                     
                     st.markdown("---")
@@ -480,26 +450,8 @@ with tabs[1]:
                     
                     with col3:
                         if st.button("▶️", key=f"comment_{comment['id']}"):
-                            # セッション変数で設定
-                            time_to_seek = comment['time_seconds']
-                            st.session_state['sec'] = time_to_seek
-                            
-                            # スクリプトを直接実行して即座にシーク
-                            st.markdown(f"""
-                            <script>
-                            console.log("通常コメントジャンプ: {time_to_seek}秒");
-                            
-                            // 直接グローバル関数を呼び出す
-                            if (typeof seekToYouTubeTime === 'function') {{
-                                seekToYouTubeTime({time_to_seek});
-                            }} else if (typeof player !== 'undefined' && player) {{
-                                player.seekTo({time_to_seek});
-                                player.playVideo();
-                            }}
-                            </script>
-                            """, unsafe_allow_html=True)
-                            
-                            # すぐに再実行して変更を反映
+                            # セッション変数で設定してからリロード
+                            seek_to(comment['time_seconds'])
                             st.rerun()
                     
                     st.markdown("---")
@@ -558,26 +510,8 @@ with tabs[2]:
                 
                 with col3:
                     if st.button("▶️", key=f"transcript_{transcript['id']}"):
-                        # セッション変数で設定
-                        time_to_seek = transcript['time_seconds']
-                        st.session_state['sec'] = time_to_seek
-                        
-                        # スクリプトを直接実行して即座にシーク
-                        st.markdown(f"""
-                        <script>
-                        console.log("文字起こしジャンプ: {time_to_seek}秒");
-                        
-                        // 直接グローバル関数を呼び出す
-                        if (typeof seekToYouTubeTime === 'function') {{
-                            seekToYouTubeTime({time_to_seek});
-                        }} else if (typeof player !== 'undefined' && player) {{
-                            player.seekTo({time_to_seek});
-                            player.playVideo();
-                        }}
-                        </script>
-                        """, unsafe_allow_html=True)
-                        
-                        # すぐに再実行して変更を反映
+                        # シーク関数を直接呼び出す - セッション変数を設定してからリロード
+                        seek_to(transcript['time_seconds'])
                         st.rerun()
                 
                 st.markdown("---")
@@ -668,26 +602,8 @@ with tabs[3]:
             
             with col2:
                 if st.button("▶️ ジャンプ", key="emotion_seek"):
-                    # セッション変数で設定
-                    time_to_seek = selected_time
-                    st.session_state['sec'] = time_to_seek
-                    
-                    # スクリプトを直接実行して即座にシーク
-                    st.markdown(f"""
-                    <script>
-                    console.log("感情分析ジャンプ: {time_to_seek}秒");
-                    
-                    // 直接グローバル関数を呼び出す
-                    if (typeof seekToYouTubeTime === 'function') {{
-                        seekToYouTubeTime({time_to_seek});
-                    }} else if (typeof player !== 'undefined' && player) {{
-                        player.seekTo({time_to_seek});
-                        player.playVideo();
-                    }}
-                    </script>
-                    """, unsafe_allow_html=True)
-                    
-                    # すぐに再実行して変更を反映
+                    # シーク関数を直接呼び出す
+                    seek_to(selected_time)
                     st.rerun()
             
             if len(emotion_df) > max_rows:

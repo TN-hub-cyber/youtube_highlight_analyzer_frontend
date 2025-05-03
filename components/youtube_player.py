@@ -23,8 +23,13 @@ def youtube_player(video_id, width=700, height=400, start_seconds=0, auto_play=T
     if 'current_time' not in st.session_state:
         st.session_state.current_time = start_seconds
     
-    # シーク命令がある場合、start_secondsにセットする
-    if 'sec' in st.session_state:
+    # 新しいシーク変数を確認（_seek_secがある場合はこちらを優先）
+    seek_target = None
+    if '_seek_sec' in st.session_state:
+        seek_target = st.session_state['_seek_sec']
+        # youtube_player.py内ではまだ削除しない（使用後にAnalysis.py側で削除）
+    elif 'sec' in st.session_state:
+        # 旧方式との互換性のため残す
         start_seconds = st.session_state['sec']
         del st.session_state['sec']  # 使用したらクリア
     
@@ -155,7 +160,22 @@ def youtube_player(video_id, width=700, height=400, start_seconds=0, auto_play=T
             // ティック機能を開始
             setInterval(tick, updateInterval);
             
-            // キューに溜まったシーク命令を処理
+            // Streamlitから渡されたシーク命令を確認し実行（他タブからのジャンプ用）
+            const seekTarget = {seek_target if seek_target is not None else 'null'};
+            if (seekTarget !== null) {{
+                console.log("Pythonから渡されたシーク命令を実行: " + seekTarget + "秒");
+                player.seekTo(seekTarget, true);
+                if (player.getPlayerState() !== YT.PlayerState.PLAYING) {{
+                    player.playVideo();
+                }}
+                
+                // 完了を通知（Analysis.py側でフラグをクリアするため）
+                try {{
+                    window.parent.postMessage({{type:'seek_completed'}}, '*');
+                }} catch (e) {{}}
+            }}
+            
+            // 既存のキューに溜まったシーク命令を処理
             if (seekQueue.length > 0) {{
                 console.log("キューに" + seekQueue.length + "個のシーク命令があります");
                 var lastSeek = seekQueue[seekQueue.length - 1];
@@ -275,6 +295,10 @@ def seek_to(time_seconds):
         time_seconds: シーク先の時間（秒）
     """
     if time_seconds is not None:
+        # 新しいシステム - 時刻をセッションに保存するだけ
+        st.session_state['_seek_sec'] = time_seconds
+        
+        # 旧システムとの互換性のため
         st.session_state['sec'] = time_seconds
 
 
