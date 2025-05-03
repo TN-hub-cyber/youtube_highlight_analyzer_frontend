@@ -67,11 +67,12 @@ def display_metrics_graph(metrics_data, current_time=None, height=300, click_ena
                         st.markdown(f"重要度: {score_perc}% (コメント: {comment_count}件)")
                     
                     with col3:
-                        st.button(f"▶️ #{i+1}", key=f"highlight_{i}", 
-                                on_click=seek_to_position, 
-                                args=(highlight['time_seconds'],))
+                        if st.button(f"▶️ #{i+1}", key=f"highlight_{i}"): 
+                            st.session_state['sec'] = highlight['time_seconds']
+                            st.rerun()
     
     # クリックイベントの有効・無効を設定
+    clicked_sec = None
     if click_enabled:
         # クリックイベントを使用してプロットを表示
         selected_points = plotly_events(fig, click_event=True)
@@ -79,23 +80,29 @@ def display_metrics_graph(metrics_data, current_time=None, height=300, click_ena
         # クリックされた場合は位置を返す
         if selected_points:
             clicked_sec = selected_points[0].get('x')
-            return clicked_sec
+            
+            # シーク命令のためにセッション状態を直接設定
+            if clicked_sec is not None:
+                # 先にst.session_stateをセットして返す（呼び出し元で処理できるようにするため）
+                st.session_state['sec'] = clicked_sec
+                st.rerun()  # 必要に応じて再実行
     else:
         # 通常のプロットとして表示
         st.plotly_chart(fig, use_container_width=True)
     
-    return None
+    return clicked_sec
 
 
-def seek_to_position(position_seconds):
-    """
-    指定位置にシークするためのセッション状態をセット
-    
-    Args:
-        position_seconds: シーク先の位置（秒）
-    """
-    if position_seconds is not None:
-        st.session_state['sec'] = position_seconds
+# この関数は不要なので削除（上記の修正で直接セッション状態を設定するため）
+# def seek_to_position(position_seconds):
+#     """
+#     指定位置にシークするためのセッション状態をセット
+#     
+#     Args:
+#         position_seconds: シーク先の位置（秒）
+#     """
+#     if position_seconds is not None:
+#         st.session_state['sec'] = position_seconds
 
 
 def display_search_graph(comment_hist_data, terms, current_time=None, height=250):
@@ -133,6 +140,10 @@ def display_search_graph(comment_hist_data, terms, current_time=None, height=250
     # クリックされた場合は位置を返す
     if selected_points:
         clicked_sec = selected_points[0].get('x')
+        if clicked_sec is not None:
+            # 直接セッション状態を設定してリランする
+            st.session_state['sec'] = clicked_sec
+            st.rerun()
         return clicked_sec
     
     return None
@@ -172,6 +183,10 @@ def display_emotion_graph(emotion_data, current_time=None, height=250):
     # クリックされた場合は位置を返す
     if selected_points:
         clicked_sec = selected_points[0].get('x')
+        if clicked_sec is not None:
+            # 直接セッション状態を設定してリランする
+            st.session_state['sec'] = clicked_sec
+            st.rerun()
         return clicked_sec
     
     return None

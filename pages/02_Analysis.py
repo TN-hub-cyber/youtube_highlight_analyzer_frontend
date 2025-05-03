@@ -54,6 +54,7 @@ with st.sidebar:
         max_value=30,
         value=st.session_state['granularity'],
         step=1,
+        key="sidebar_granularity",
         help="時系列データの集計粒度を設定します。数値が小さいほど詳細なデータが表示されますが、処理が重くなる場合があります。"
     )
     
@@ -119,7 +120,7 @@ with col4:
     comment_count = f"{video_details['comment_count']:,}" if 'comment_count' in video_details else '不明'
     st.markdown(f"**コメント数**: {comment_count}")
 
-# YouTubeプレイヤーとメトリクスグラフのレイアウト
+# YouTubeプレイヤーとコントロールパネルのレイアウト
 col1, col2 = st.columns([6, 4])
 
 with col1:
@@ -134,20 +135,95 @@ with col1:
     )
 
 with col2:
-    # メトリクスグラフ
-    st.subheader("メトリクス")
-    clicked_time = display_metrics_graph(metrics_data, current_time)
+    # コントロールパネル
+    st.subheader("コントロールパネル")
     
-    # グラフがクリックされた場合はシーク
-    if clicked_time is not None:
-        st.session_state['sec'] = clicked_time
+    # 粒度設定
+    control_granularity = st.slider(
+        "データ粒度 (秒)",
+        min_value=1,
+        max_value=30,
+        value=granularity,
+        step=1,
+        key="control_panel_granularity",
+        help="時系列データの集計粒度を設定します。数値が小さいほど詳細なデータが表示されますが、処理が重くなる場合があります。"
+    )
+    
+    # 粒度が変更された場合はセッション状態を更新
+    if control_granularity != granularity:
+        st.session_state['granularity'] = control_granularity
+        st.rerun()
+    
+    # 区切り線
+    st.markdown("---")
+    
+    # コメント検索（複数指定可）
+    st.markdown("### コメント検索（複数指定可）")
+    search_terms_input = st.text_input(
+        "検索語を入力（複数語はカンマで区切る）", 
+        key="control_search_terms",
+        placeholder="例: かわいい, すごい, 面白い"
+    )
+    
+    # 検索語の処理
+    if search_terms_input:
+        search_terms = [term.strip() for term in search_terms_input.split(',') if term.strip()]
+        if search_terms:
+            # 検索条件
+            match_type = st.radio(
+                "検索条件",
+                ["いずれかを含む", "すべてを含む"],
+                horizontal=True,
+                key="control_match_type"
+            )
+            
+            # 検索ボタン
+            if st.button("検索", type="primary"):
+                # タブをコメントタブに切り替え
+                st.session_state['active_tab'] = 1  # コメントタブのインデックス
+                st.session_state['search_terms'] = search_terms
+                st.session_state['match_type'] = match_type
+                st.rerun()
+    
+    # 区切り線
+    st.markdown("---")
+    
+    # 現在位置
+    st.markdown(f"**現在位置**: {format_time(current_time) if current_time is not None else '00:00'}")
+    
+    # 詳細設定ボタン
+    if st.button("詳細設定", key="settings_button"):
+        st.session_state['show_settings'] = True
         st.rerun()
 
-# タブコンテンツ
-tab1, tab2, tab3, tab4 = st.tabs(["📑 チャプター", "💬 コメント", "📝 文字起こし", "😊 感情分析"])
+# メトリクスグラフ
+st.subheader("メトリクス")
+clicked_time = display_metrics_graph(metrics_data, current_time)
 
+# グラフがクリックされた場合はシーク
+if clicked_time is not None:
+    st.session_state['sec'] = clicked_time
+    st.rerun()
+
+# タブコンテンツ - アクティブタブの管理
+if 'active_tab' not in st.session_state:
+    st.session_state['active_tab'] = 0  # デフォルトはチャプタータブ(0)
+
+# タブ切り替え機能
+tab_names = ["📑 チャプター", "💬 コメント", "📝 文字起こし", "😊 感情分析"]
+tabs = st.tabs(tab_names)
+
+# コントロールパネルからの検索をハンドリング
+if 'search_terms' in st.session_state and st.session_state.get('active_tab') == 1:
+    # コメントタブアクティブ時に検索語があれば検索フォームに設定
+    search_terms = st.session_state['search_terms']
+    del st.session_state['search_terms']
+
+# 各タブの内容
 # タブ1: チャプター
-with tab1:
+with tabs[0]:
+    # このタブが選択されたら状態を更新
+    st.session_state['active_tab'] = 0
     st.header("チャプター")
     
     with st.spinner("チャプターデータを読み込み中..."):
@@ -173,7 +249,9 @@ with tab1:
                 
                 with col3:
                     if st.button("▶️", key=f"chapter_{chapter['id']}"):
+                        # グローバル変数で設定
                         st.session_state['sec'] = chapter['time_seconds']
+                        # すぐに再実行して変更を反映
                         st.rerun()
                 
                 st.markdown("---")
@@ -183,7 +261,9 @@ with tab1:
         st.info("この動画にはチャプターデータがありません。")
 
 # タブ2: コメント
-with tab2:
+with tabs[1]:
+    # このタブが選択されたら状態を更新
+    st.session_state['active_tab'] = 1
     st.header("コメント分析")
     
     # 検索語入力
@@ -265,7 +345,9 @@ with tab2:
                     
                     with col3:
                         if st.button("▶️", key=f"comment_{comment['id']}"):
+                            # グローバル変数で設定
                             st.session_state['sec'] = comment['time_seconds']
+                            # すぐに再実行して変更を反映
                             st.rerun()
                     
                     st.markdown("---")
@@ -304,7 +386,9 @@ with tab2:
                     
                     with col3:
                         if st.button("▶️", key=f"comment_{comment['id']}"):
+                            # グローバル変数で設定
                             st.session_state['sec'] = comment['time_seconds']
+                            # すぐに再実行して変更を反映
                             st.rerun()
                     
                     st.markdown("---")
@@ -317,7 +401,9 @@ with tab2:
             st.info("この動画にはコメントがありません。")
 
 # タブ3: 文字起こし
-with tab3:
+with tabs[2]:
+    # このタブが選択されたら状態を更新
+    st.session_state['active_tab'] = 2
     st.header("文字起こし")
     
     # 検索フィルター
@@ -361,7 +447,9 @@ with tab3:
                 
                 with col3:
                     if st.button("▶️", key=f"transcript_{transcript['id']}"):
+                        # グローバル変数で設定
                         st.session_state['sec'] = transcript['time_seconds']
+                        # すぐに再実行して変更を反映
                         st.rerun()
                 
                 st.markdown("---")
@@ -371,39 +459,111 @@ with tab3:
         st.info("この動画には文字起こしデータがありません。")
 
 # タブ4: 感情分析
-with tab4:
+with tabs[3]:
+    # このタブが選択されたら状態を更新
+    st.session_state['active_tab'] = 3
     st.header("感情分析")
     
     with st.spinner("感情分析データを読み込み中..."):
         emotion_data = get_emotion_analysis(video_id)
     
     if emotion_data:
-        from components.metrics_graph import display_emotion_graph
+        # データフレームに変換
+        from utils.data_utils import prepare_emotion_data
+        emotion_df = prepare_emotion_data(emotion_data)
         
-        # 感情グラフの表示
-        clicked_time_emotion = display_emotion_graph(emotion_data, current_time)
-        
-        # グラフがクリックされた場合はシーク
-        if clicked_time_emotion is not None:
-            st.session_state['sec'] = clicked_time_emotion
-            st.rerun()
+        if not emotion_df.empty:
+            # 時間範囲選択
+            st.subheader("感情分析データ")
+            
+            # 表形式での表示（ワイヤーフレームに準拠）
+            emotion_cols = [col for col in emotion_df.columns if col != 'time_seconds']
+            
+            # 一部のデータを表示（最大100件）
+            max_rows = min(100, len(emotion_df))
+            display_df = emotion_df.head(max_rows).copy()
+            
+            # データ整形
+            display_df['time'] = display_df['time_seconds'].apply(format_time)
+            
+            # 表示する列の順序と名前を設定
+            emotion_types = ['happy', 'sad', 'angry', 'surprise', 'fear', 'disgust', 'neutral']
+            
+            # 存在する感情タイプだけを表示
+            available_types = [t for t in emotion_types if t in display_df.columns]
+            
+            # 表示するデータフレームを作成
+            view_df = pd.DataFrame()
+            view_df['時間'] = display_df['time']
+            
+            # 感情タイプごとに列を追加（日本語名に変換）
+            emotion_names = {
+                'happy': '喜び',
+                'sad': '悲しみ',
+                'angry': '怒り',
+                'surprise': '驚き',
+                'fear': '恐怖',
+                'disgust': '嫌悪',
+                'neutral': '中立'
+            }
+            
+            for emotion in available_types:
+                if emotion in display_df.columns:
+                    view_df[emotion_names.get(emotion, emotion)] = display_df[emotion].round(2)
+            
+            # 最大感情を強調表示するスタイル関数
+            def highlight_max(row):
+                emotion_cols = [col for col in row.index if col != '時間']
+                if not emotion_cols:
+                    return [''] * len(row)
+                    
+                max_col = max(emotion_cols, key=lambda x: row[x])
+                return ['font-weight: bold; background-color: #e6f2ff' if col == max_col else '' for col in row.index]
+            
+            # スタイル適用
+            st.dataframe(
+                view_df.style.apply(highlight_max, axis=1),
+                use_container_width=True,
+                height=400
+            )
+            
+            # シーク機能
+            col1, col2 = st.columns([3, 1])
+            with col1:
+                selected_time = st.slider(
+                    "時間を選択してジャンプ", 
+                    min_value=0, 
+                    max_value=int(emotion_df['time_seconds'].max()),
+                    value=int(current_time) if current_time is not None else 0,
+                    key="emotion_tab_time_slider"
+                )
+            
+            with col2:
+                if st.button("▶️ ジャンプ", key="emotion_seek"):
+                    st.session_state['sec'] = selected_time
+                    st.rerun()
+            
+            if len(emotion_df) > max_rows:
+                st.info(f"表示件数を制限しています（{max_rows}/{len(emotion_df)}件表示）")
         
         # 感情の説明
         with st.expander("感情スコアについて"):
             st.markdown("""
             **感情分析について**
             
-            このグラフは動画の音声から検出された感情を時系列で表示しています。
+            このテーブルは動画の音声から検出された感情を時系列で表示しています。
             各感情スコアは0〜1の範囲で正規化されており、値が大きいほどその感情が強く表れています。
             
             主な感情タイプ:
-            - **happy (幸せ)**: 喜び、楽しさ、ポジティブな感情
-            - **sad (悲しみ)**: 悲しみ、落ち込み、ネガティブな感情
-            - **angry (怒り)**: 苛立ち、怒り、攻撃的な感情
-            - **surprise (驚き)**: 驚き、意外性に対する反応
-            - **fear (恐怖)**: 不安、心配、恐れ
-            - **disgust (嫌悪)**: 不快感、拒絶反応
-            - **neutral (中立)**: 特定の感情がない平常状態
+            - **喜び (happy)**: 喜び、楽しさ、ポジティブな感情
+            - **悲しみ (sad)**: 悲しみ、落ち込み、ネガティブな感情
+            - **怒り (angry)**: 苛立ち、怒り、攻撃的な感情
+            - **驚き (surprise)**: 驚き、意外性に対する反応
+            - **恐怖 (fear)**: 不安、心配、恐れ
+            - **嫌悪 (disgust)**: 不快感、拒絶反応
+            - **中立 (neutral)**: 特定の感情がない平常状態
+            
+            各時間で最も強い感情が強調表示されています。
             """)
     else:
         st.info("この動画には感情分析データがありません。")

@@ -104,10 +104,11 @@ def youtube_player(video_id, width=700, height=400, start_seconds=0, auto_play=T
     """
     
     # プレイヤーを表示し、現在の再生位置を取得
-    current_time = components.html(player_code, height=height, width=width)
+    component_instance = components.html(player_code, height=height, width=width)
     
-    if current_time is not None:
-        st.session_state.current_time = current_time
+    # component_instanceの戻り値ではなく、セッション状態から現在の時間を取得
+    if 'current_time' not in st.session_state:
+        st.session_state.current_time = start_seconds
     
     return st.session_state.current_time
 
@@ -152,25 +153,78 @@ def create_seek_command(container=st):
     if 'sec' in st.session_state:
         sec = st.session_state['sec']
         
-        # シーク命令を送信するJavaScript
+        # シーク命令を送信するJavaScript（デバッグ情報を追加）
         js_code = f"""
         <script>
+        // デバッグ情報
+        console.log('シーク命令: {sec}秒に移動します');
+        
         // YouTubeプレイヤーにシーク命令を送信
         var message = {{
             type: 'seek',
             sec: {sec}
         }};
         
-        // IFrameに対してpostMessage
-        var iframes = document.getElementsByTagName('iframe');
-        if (iframes.length > 0) {{
-            iframes[0].contentWindow.postMessage(message, '*');
+        // スマートなセレクタを使用してYouTubeプレイヤーのiframeを探す
+        function findYouTubeIframe() {{
+            // ID付きのYouTubeプレイヤー要素を探す
+            var playerDiv = document.getElementById('player');
+            if (playerDiv && playerDiv.querySelector('iframe')) {{
+                return playerDiv.querySelector('iframe');
+            }}
+            
+            // class名でYouTube iframeを探す
+            var youtubeFrames = document.querySelectorAll('iframe[src*="youtube.com"]');
+            if (youtubeFrames.length > 0) {{
+                return youtubeFrames[0];
+            }}
+            
+            // 全てのiframeを返す（最後の手段）
+            return document.getElementsByTagName('iframe');
+        }}
+        
+        var youtubeIframes = findYouTubeIframe();
+        
+        // 単一の要素の場合
+        if (youtubeIframes.tagName === 'IFRAME') {{
+            console.log('YouTube iframeが見つかりました');
+            try {{
+                youtubeIframes.contentWindow.postMessage(message, '*');
+                console.log('シーク命令を送信しました:', message);
+            }} catch(err) {{
+                console.error('シーク命令の送信中にエラーが発生しました:', err);
+            }}
+        }} 
+        // 複数要素のコレクションの場合
+        else if (youtubeIframes.length > 0) {{
+            console.log('iframeが' + youtubeIframes.length + '個見つかりました');
+            for (var i = 0; i < youtubeIframes.length; i++) {{
+                try {{
+                    youtubeIframes[i].contentWindow.postMessage(message, '*');
+                    console.log('iframe[' + i + ']にシーク命令を送信しました');
+                }} catch(err) {{
+                    console.error('iframe[' + i + ']へのシーク命令の送信中にエラー:', err);
+                }}
+            }}
+        }} else {{
+            console.error('YouTubeプレイヤーIFrameが見つかりません');
+        }}
+        
+        // ウィンドウにも送信（iframe内のコードが親ウィンドウをリッスンしている場合）
+        try {{
+            window.postMessage(message, '*');
+            console.log('ウィンドウにもシーク命令を送信しました');
+        }} catch(err) {{
+            console.error('ウィンドウへのシーク命令の送信中にエラー:', err);
         }}
         </script>
         """
         
         # JavaScriptを実行
         container.components.v1.html(js_code, height=0)
+        
+        # デバッグ情報（開発時のみ表示）
+        # st.info(f"DEBUG: シーク命令 {sec}秒")
         
         # 命令をクリア
         del st.session_state['sec']

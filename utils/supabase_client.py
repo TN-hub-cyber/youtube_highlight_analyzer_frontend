@@ -3,6 +3,7 @@ import pathlib
 from dotenv import load_dotenv
 from supabase import create_client
 import streamlit as st
+from utils.data_utils import client_side_metrics_agg, client_side_multi_term_comment_hist, client_side_search_comments_multi
 
 # プロジェクトルートの絶対パスを取得
 project_root = pathlib.Path(__file__).parent.parent.absolute()
@@ -121,8 +122,34 @@ def get_video_details(video_id):
     if supabase is None:
         return None
     try:
-        response = supabase.table("videos").select("*").eq("video_id", video_id).single().execute()
-        return response.data
+        # single()を使わず、最初の結果を取得する方法に変更
+        response = supabase.table("videos").select("*").eq("video_id", video_id).limit(1).execute()
+        
+        # レスポンスのデータ内に結果があるか確認
+        if response.data and len(response.data) > 0:
+            return response.data[0]
+        else:
+            print(f"動画詳細情報が見つかりません: video_id={video_id}")
+            # 内部ID（数値ID）で検索を試みる
+            try:
+                vid_int = int(video_id)
+                response = supabase.table("videos").select("*").eq("id", vid_int).limit(1).execute()
+                if response.data and len(response.data) > 0:
+                    return response.data[0]
+            except (ValueError, Exception):
+                # 数値に変換できない場合は何もしない
+                pass
+                
+            # デフォルト値を返す
+            return {
+                'id': video_id,
+                'video_id': video_id,
+                'title': '動画情報取得エラー',
+                'description': '',
+                'duration': 0,
+                'view_count': 0,
+                'comment_count': 0
+            }
     except Exception as e:
         print(f"動画詳細情報の取得エラー: {e}")
         # デフォルト値を返す
@@ -143,8 +170,18 @@ def get_metrics_agg(video_id, granularity=5):
     if supabase is None:
         return []
     try:
-        response = supabase.rpc("metrics_agg", {"_vid": video_id, "_g": granularity}).execute()
-        return response.data
+        # まずRPC関数を試す
+        try:
+            response = supabase.rpc("metrics_agg", {"_vid": video_id, "_g": granularity}).execute()
+            if response.data:
+                return response.data
+        except Exception as rpc_error:
+            print(f"RPC metrics_agg エラー: {rpc_error}")
+            # RPCが失敗した場合はクライアントサイド実装にフォールバック
+            
+        # クライアントサイド実装（フォールバック）
+        print("クライアントサイドの集計処理を実行します")
+        return client_side_metrics_agg(video_id, granularity)
     except Exception as e:
         print(f"メトリクスデータ取得エラー: {e}")
         return []
@@ -155,8 +192,18 @@ def get_multi_term_comment_hist(video_id, terms, granularity=5):
     if supabase is None:
         return []
     try:
-        response = supabase.rpc("multi_term_comment_hist", {"_vid": video_id, "_terms": terms, "_g": granularity}).execute()
-        return response.data
+        # まずRPC関数を試す
+        try:
+            response = supabase.rpc("multi_term_comment_hist", {"_vid": video_id, "_terms": terms, "_g": granularity}).execute()
+            if response.data:
+                return response.data
+        except Exception as rpc_error:
+            print(f"RPC multi_term_comment_hist エラー: {rpc_error}")
+            # RPCが失敗した場合はクライアントサイド実装にフォールバック
+            
+        # クライアントサイド実装（フォールバック）
+        print("クライアントサイドのコメント頻度集計処理を実行します")
+        return client_side_multi_term_comment_hist(video_id, terms, granularity)
     except Exception as e:
         print(f"コメント頻度データ取得エラー: {e}")
         return []
@@ -167,8 +214,18 @@ def search_comments_multi(video_id, terms, match_type="any"):
     if supabase is None:
         return []
     try:
-        response = supabase.rpc("search_comments_multi", {"_vid": video_id, "_terms": terms, "_match_type": match_type}).execute()
-        return response.data
+        # まずRPC関数を試す
+        try:
+            response = supabase.rpc("search_comments_multi", {"_vid": video_id, "_terms": terms, "_match_type": match_type}).execute()
+            if response.data:
+                return response.data
+        except Exception as rpc_error:
+            print(f"RPC search_comments_multi エラー: {rpc_error}")
+            # RPCが失敗した場合はクライアントサイド実装にフォールバック
+            
+        # クライアントサイド実装（フォールバック）
+        print("クライアントサイドのコメント検索処理を実行します")
+        return client_side_search_comments_multi(video_id, terms, match_type)
     except Exception as e:
         print(f"コメント検索エラー: {e}")
         return []
