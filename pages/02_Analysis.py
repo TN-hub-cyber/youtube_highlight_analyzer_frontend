@@ -702,6 +702,19 @@ with tabs[3]:
     st.session_state['active_tab'] = 3
     st.header("感情分析")
     
+    # セッション状態の初期化
+    if 'emotion_filter_type' not in st.session_state:
+        st.session_state['emotion_filter_type'] = []
+    
+    if 'emotion_filter_confidence' not in st.session_state:
+        st.session_state['emotion_filter_confidence'] = 0.0
+    
+    if 'emotion_page' not in st.session_state:
+        st.session_state['emotion_page'] = 0
+    
+    if 'emotion_page_size' not in st.session_state:
+        st.session_state['emotion_page_size'] = 10  # デフォルトの1ページ表示件数
+    
     with st.spinner("感情分析データを読み込み中..."):
         emotion_data = get_emotion_analysis(video_id)
     
@@ -713,9 +726,6 @@ with tabs[3]:
         if not emotion_df.empty:
             # 時間範囲選択
             st.subheader("感情分析データ")
-            
-            # 表形式での表示（ワイヤーフレームに準拠）
-            emotion_cols = [col for col in emotion_df.columns if col != 'time_seconds']
             
             # 感情タイプの表示名マッピング
             emotion_names = {
@@ -734,76 +744,201 @@ with tabs[3]:
                 'Bellow': '大声'
             }
             
-            # 一部のデータを表示（最大100件）
-            max_rows = min(100, len(emotion_df))
-            display_df = emotion_df.head(max_rows).copy()
-            
+            # データ前処理
             # 時間を人間が読みやすい形式に変換
-            display_df['time_formatted'] = display_df['time_seconds'].apply(format_time)
+            emotion_df['time_formatted'] = emotion_df['time_seconds'].apply(format_time)
             
             # 感情タイプを日本語に変換
-            display_df['emotion_type_ja'] = display_df['emotion_type'].apply(lambda x: emotion_names.get(x, x))
+            emotion_df['emotion_type_ja'] = emotion_df['emotion_type'].apply(lambda x: emotion_names.get(x, x))
             
             # 信頼度スコアを小数点以下2桁に丸める
-            display_df['confidence_score'] = display_df['confidence_score'].apply(lambda x: round(float(x), 2) if pd.notnull(x) else 0)
+            emotion_df['confidence_score'] = emotion_df['confidence_score'].apply(lambda x: round(float(x), 2) if pd.notnull(x) else 0)
             
-            # 表示するデータをテーブル形式で順に表示
-            st.subheader(f"感情分析リスト (全{len(emotion_df)}件中 {max_rows}件表示)")
+            # フィルター用UI
+            st.subheader("フィルター設定")
             
-            for i, row in display_df.iterrows():
-                cols = st.columns([2, 3, 3, 1])
+            # 3列レイアウトでフィルターを作成
+            col1, col2, col3 = st.columns([2, 2, 1])
+            
+            with col1:
+                # 感情タイプフィルター
+                # 利用可能な感情タイプをデータから取得
+                available_emotions = sorted(emotion_df['emotion_type'].unique())
+                available_emotions_ja = [emotion_names.get(e, e) for e in available_emotions]
                 
-                with cols[0]:
-                    st.markdown(f"**{row['time_formatted']}**")
+                # 日本語表示名と内部値のマッピングを作成
+                emotion_options = dict(zip(available_emotions_ja, available_emotions))
                 
-                with cols[1]:
-                    st.markdown(f"**{row['emotion_type_ja']}**")
+                # マルチセレクトによる感情タイプ選択
+                selected_emotions_ja = st.multiselect(
+                    "感情タイプ",
+                    options=available_emotions_ja,
+                    default=[],
+                    key="emotion_type_filter"
+                )
                 
-                with cols[2]:
-                    # 信頼度スコアをプログレスバーとして表示
-                    score = row['confidence_score']
-                    st.progress(score)
-                    st.caption(f"信頼度: {score:.2f}")
+                # 日本語表示名から内部値に変換
+                selected_emotions = [emotion_options[e_ja] for e_ja in selected_emotions_ja]
                 
-                with cols[3]:
-                    # ジャンプボタン
-                    if st.button("▶️", key=f"emotion_{i}"):
-                        # 一時変数に保存してから、seek_to関数を呼び出す
-                        emotion_time = float(row['time_seconds'])
-                        print(f"感情分析ボタン{i}がクリックされました: {emotion_time}秒")
-                        # 関数呼び出し前にすべてのシーク関連セッション変数をクリア
-                        for key in ['_seek_sec', 'sec', '_force_reload']:
-                            if key in st.session_state:
-                                del st.session_state[key]
-                        # seek_to関数を直接呼び出し
-                        seek_to(emotion_time)
-                        # 即座に再読み込み
+                # 選択が変更された場合はセッション状態を更新し、ページをリセット
+                if selected_emotions != st.session_state['emotion_filter_type']:
+                    st.session_state['emotion_filter_type'] = selected_emotions
+                    st.session_state['emotion_page'] = 0
+            
+            with col2:
+                # 信頼度フィルター
+                confidence_threshold = st.slider(
+                    "最小信頼度",
+                    min_value=0.0,
+                    max_value=1.0,
+                    value=st.session_state['emotion_filter_confidence'],
+                    step=0.05,
+                    format="%.2f",
+                    key="confidence_threshold"
+                )
+                
+                # 値が変更された場合はセッション状態を更新し、ページをリセット
+                if confidence_threshold != st.session_state['emotion_filter_confidence']:
+                    st.session_state['emotion_filter_confidence'] = confidence_threshold
+                    st.session_state['emotion_page'] = 0
+                
+                # 1ページあたりの表示件数
+                page_size = st.selectbox(
+                    "表示件数",
+                    options=[5, 10, 20, 50, 100],
+                    index=1,  # デフォルトは10
+                    key="page_size"
+                )
+                
+                # 値が変更された場合はセッション状態を更新し、ページをリセット
+                if page_size != st.session_state['emotion_page_size']:
+                    st.session_state['emotion_page_size'] = page_size
+                    st.session_state['emotion_page'] = 0
+            
+            # フィルタークリアボタンを削除（ユーザーフィードバックに基づく修正）
+            
+            # フィルタリング処理
+            filtered_df = emotion_df.copy()
+            
+            # 感情タイプでフィルタリング
+            if st.session_state['emotion_filter_type']:
+                filtered_df = filtered_df[filtered_df['emotion_type'].isin(st.session_state['emotion_filter_type'])]
+            
+            # 信頼度でフィルタリング
+            if st.session_state['emotion_filter_confidence'] > 0:
+                filtered_df = filtered_df[filtered_df['confidence_score'] >= st.session_state['emotion_filter_confidence']]
+            
+            # ページネーション処理
+            total_items = len(filtered_df)
+            page_size = st.session_state['emotion_page_size']
+            current_page = st.session_state['emotion_page']
+            total_pages = max(1, (total_items + page_size - 1) // page_size)  # 切り上げ除算
+            
+            # ページが範囲外にならないように調整
+            if current_page >= total_pages:
+                st.session_state['emotion_page'] = total_pages - 1
+                current_page = total_pages - 1
+            
+            # 現在のページのデータを取得
+            start_idx = current_page * page_size
+            end_idx = min(start_idx + page_size, total_items)
+            
+            if not filtered_df.empty:
+                display_df = filtered_df.iloc[start_idx:end_idx]
+                
+                # 結果情報を表示
+                st.subheader(f"感情分析リスト ({total_items}件中 {start_idx + 1}～{end_idx}件を表示)")
+                
+                # データ表示
+                for i, row in display_df.iterrows():
+                    cols = st.columns([2, 3, 3, 1])
+                    
+                    with cols[0]:
+                        st.markdown(f"**{row['time_formatted']}**")
+                    
+                    with cols[1]:
+                        st.markdown(f"**{row['emotion_type_ja']}**")
+                    
+                    with cols[2]:
+                        # 信頼度スコアをプログレスバーとして表示
+                        score = row['confidence_score']
+                        st.progress(score)
+                        st.caption(f"信頼度: {score:.2f}")
+                    
+                    with cols[3]:
+                        # ジャンプボタン
+                        if st.button("▶️", key=f"emotion_{i}"):
+                            # 一時変数に保存してから、seek_to関数を呼び出す
+                            emotion_time = float(row['time_seconds'])
+                            print(f"感情分析ボタン{i}がクリックされました: {emotion_time}秒")
+                            # 関数呼び出し前にすべてのシーク関連セッション変数をクリア
+                            for key in ['_seek_sec', 'sec', '_force_reload']:
+                                if key in st.session_state:
+                                    del st.session_state[key]
+                            # seek_to関数を直接呼び出し
+                            seek_to(emotion_time)
+                            # 即座に再読み込み
+                            st.rerun()
+                    
+                    # 区切り線
+                    st.divider()
+                
+                # ページネーションコントロール
+                col1, col2, col3 = st.columns([1, 3, 1])
+                
+                with col1:
+                    if st.button("前へ", key="prev_page", disabled=current_page == 0):
+                        st.session_state['emotion_page'] = max(0, current_page - 1)
                         st.rerun()
                 
-                # 区切り線
-                st.divider()
-            
-            if len(emotion_df) > max_rows:
-                st.info(f"表示件数を制限しています（{max_rows}/{len(emotion_df)}件表示）")
+                with col2:
+                    st.write(f"ページ: {current_page + 1} / {total_pages}")
+                    
+                    # ページ番号入力
+                    page_input = st.number_input(
+                        "ページ番号を入力",
+                        min_value=1,
+                        max_value=total_pages,
+                        value=current_page + 1,
+                        step=1,
+                        key="page_number"
+                    )
+                    
+                    if st.button("移動", key="goto_page"):
+                        st.session_state['emotion_page'] = page_input - 1
+                        st.rerun()
+                
+                with col3:
+                    if st.button("次へ", key="next_page", disabled=current_page >= total_pages - 1):
+                        st.session_state['emotion_page'] = min(total_pages - 1, current_page + 1)
+                        st.rerun()
+            else:
+                st.info("条件に一致するデータがありません。フィルターを調整してください。")
         
         # 感情の説明
-        with st.expander("感情スコアについて"):
+        with st.expander("感情分析データについて"):
             st.markdown("""
             **感情分析について**
             
             このテーブルは動画の音声から検出された感情を時系列で表示しています。
             各感情スコアは0〜1の範囲で正規化されており、値が大きいほどその感情が強く表れています。
             
-            主な感情タイプ:
-            - **喜び (happy)**: 喜び、楽しさ、ポジティブな感情
-            - **悲しみ (sad)**: 悲しみ、落ち込み、ネガティブな感情
-            - **怒り (angry)**: 苛立ち、怒り、攻撃的な感情
-            - **驚き (surprise)**: 驚き、意外性に対する反応
-            - **恐怖 (fear)**: 不安、心配、恐れ
-            - **嫌悪 (disgust)**: 不快感、拒絶反応
-            - **中立 (neutral)**: 特定の感情がない平常状態
+            **感情タイプ一覧**:
+            - **スクリーム (Scream)**: 叫び声や悲鳴
+            - **叫び声 (Screaming)**: 大声での叫び
+            - **泣き声 (Crying)**: 涙を伴う感情表現
+            - **息を呑む (Gasp)**: 驚きや衝撃による息の詰まり
+            - **怒鳴り声 (Yell)**: 怒りや興奮を表す大声
+            - **悲鳴 (Shriek)**: 恐怖や驚きの鋭い声
+            - **泣き叫び (Wail)**: 悲しみを伴う大きな泣き声
+            - **遠吠え/咆哮 (HowlRoar)**: 力強い感情表現の声
+            - **遠吠え (Howl)**: 長く引き伸ばした声
+            - **咆哮 (Roar)**: 力強い怒りや興奮の表現
+            - **うなり声 (Growl)**: 低い音域での威嚇や不満
+            - **呻き声 (Groan)**: 痛みや不快感の表現
+            - **大声 (Bellow)**: 非常に大きな叫び声
             
-            各時間で最も強い感情が強調表示されています。
+            **信頼度スコア**は、その感情が検出された確実性を示しています。値が高いほど、その感情が明確に表れていると判断されています。
             """)
     else:
         st.info("この動画には感情分析データがありません。")
