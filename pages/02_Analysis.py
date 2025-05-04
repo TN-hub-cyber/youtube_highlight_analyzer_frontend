@@ -422,16 +422,28 @@ with tabs[1]:
     if 'comment_sort_method' not in st.session_state:
         st.session_state['comment_sort_method'] = "関連度"
     
-    # 検索語入力（セッション状態から初期値を取得）
-    search_terms_input = st.text_input(
-        "検索語を入力（複数語はカンマで区切る）",
-        value=st.session_state['comment_search_terms_input'],
-        placeholder="例: かわいい, すごい, 面白い"
-    )
+    # 検索語入力と「クリア」ボタンを横に配置
+    col1, col2 = st.columns([5, 1])
     
-    # 検索入力が変更されたらセッション状態を更新
-    if search_terms_input != st.session_state['comment_search_terms_input']:
-        st.session_state['comment_search_terms_input'] = search_terms_input
+    with col1:
+        # 検索語入力（セッション状態から初期値を取得）
+        search_terms_input = st.text_input(
+            "検索語を入力（複数語はカンマで区切る）",
+            value=st.session_state['comment_search_terms_input'],
+            placeholder="例: かわいい, すごい, 面白い"
+        )
+        
+        # 検索入力が変更されたらセッション状態を更新
+        if search_terms_input != st.session_state['comment_search_terms_input']:
+            st.session_state['comment_search_terms_input'] = search_terms_input
+            
+    with col2:
+        # クリアボタン
+        if st.button("クリア", key="clear_comment_search"):
+            # 検索語をクリア
+            st.session_state['comment_search_terms_input'] = ""
+            # ページをリロード
+            st.rerun()
     
     search_terms = [term.strip() for term in search_terms_input.split(',')] if search_terms_input else []
     
@@ -589,15 +601,26 @@ with tabs[2]:
     st.session_state['active_tab'] = 2
     st.header("文字起こし")
     
-    # 検索フィルター
+    # 検索フィルターとクリアボタンを横に配置
     if 'transcript_search' not in st.session_state:
         st.session_state['transcript_search'] = ""
     
-    transcript_search = st.text_input("🔍 文字起こしを検索", value=st.session_state['transcript_search'])
+    col1, col2 = st.columns([5, 1])
     
-    # 検索語が変更されたらセッション状態を更新
-    if transcript_search != st.session_state['transcript_search']:
-        st.session_state['transcript_search'] = transcript_search
+    with col1:
+        transcript_search = st.text_input("🔍 文字起こしを検索", value=st.session_state['transcript_search'])
+        
+        # 検索語が変更されたらセッション状態を更新
+        if transcript_search != st.session_state['transcript_search']:
+            st.session_state['transcript_search'] = transcript_search
+            
+    with col2:
+        # クリアボタン
+        if st.button("クリア", key="clear_transcript_search"):
+            # 検索語をクリア
+            st.session_state['transcript_search'] = ""
+            # ページをリロード
+            st.rerun()
     
     with st.spinner("文字起こしデータを読み込み中..."):
         transcriptions_data = get_transcriptions(video_id)
