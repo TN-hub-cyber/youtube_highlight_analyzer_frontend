@@ -717,78 +717,71 @@ with tabs[3]:
             # 表形式での表示（ワイヤーフレームに準拠）
             emotion_cols = [col for col in emotion_df.columns if col != 'time_seconds']
             
+            # 感情タイプの表示名マッピング
+            emotion_names = {
+                'Scream': 'スクリーム',
+                'Screaming': '叫び声',
+                'Crying': '泣き声',
+                'Gasp': '息を呑む',
+                'Yell': '怒鳴り声',
+                'Shriek': '悲鳴',
+                'Wail': '泣き叫び',
+                'HowlRoar': '遠吠え/咆哮',
+                'Howl': '遠吠え',
+                'Roar': '咆哮',
+                'Growl': 'うなり声',
+                'Groan': '呻き声',
+                'Bellow': '大声'
+            }
+            
             # 一部のデータを表示（最大100件）
             max_rows = min(100, len(emotion_df))
             display_df = emotion_df.head(max_rows).copy()
             
-            # データ整形
-            display_df['time'] = display_df['time_seconds'].apply(format_time)
+            # 時間を人間が読みやすい形式に変換
+            display_df['time_formatted'] = display_df['time_seconds'].apply(format_time)
             
-            # 表示する列の順序と名前を設定
-            emotion_types = ['happy', 'sad', 'angry', 'surprise', 'fear', 'disgust', 'neutral']
+            # 感情タイプを日本語に変換
+            display_df['emotion_type_ja'] = display_df['emotion_type'].apply(lambda x: emotion_names.get(x, x))
             
-            # 存在する感情タイプだけを表示
-            available_types = [t for t in emotion_types if t in display_df.columns]
+            # 信頼度スコアを小数点以下2桁に丸める
+            display_df['confidence_score'] = display_df['confidence_score'].apply(lambda x: round(float(x), 2) if pd.notnull(x) else 0)
             
-            # 表示するデータフレームを作成
-            view_df = pd.DataFrame()
-            view_df['時間'] = display_df['time']
+            # 表示するデータをテーブル形式で順に表示
+            st.subheader(f"感情分析リスト (全{len(emotion_df)}件中 {max_rows}件表示)")
             
-            # 感情タイプごとに列を追加（日本語名に変換）
-            emotion_names = {
-                'happy': '喜び',
-                'sad': '悲しみ',
-                'angry': '怒り',
-                'surprise': '驚き',
-                'fear': '恐怖',
-                'disgust': '嫌悪',
-                'neutral': '中立'
-            }
-            
-            for emotion in available_types:
-                if emotion in display_df.columns:
-                    view_df[emotion_names.get(emotion, emotion)] = display_df[emotion].round(2)
-            
-            # 最大感情を強調表示するスタイル関数
-            def highlight_max(row):
-                emotion_cols = [col for col in row.index if col != '時間']
-                if not emotion_cols:
-                    return [''] * len(row)
-                    
-                max_col = max(emotion_cols, key=lambda x: row[x])
-                return ['font-weight: bold; background-color: #e6f2ff' if col == max_col else '' for col in row.index]
-            
-            # スタイル適用
-            st.dataframe(
-                view_df.style.apply(highlight_max, axis=1),
-                use_container_width=True,
-                height=400
-            )
-            
-            # シーク機能
-            col1, col2 = st.columns([3, 1])
-            with col1:
-                selected_time = st.slider(
-                    "時間を選択してジャンプ", 
-                    min_value=0, 
-                    max_value=int(emotion_df['time_seconds'].max()),
-                    value=int(current_time) if current_time is not None else 0,
-                    key="emotion_tab_time_slider"
-                )
-            
-            with col2:
-                if st.button("▶️ ジャンプ", key="emotion_seek"):
-                    # 一時変数に保存してから、seek_to関数を呼び出す
-                    emo_time = float(selected_time)
-                    print(f"感情分析ジャンプボタンがクリックされました: {emo_time}秒")
-                    # 関数呼び出し前にすべてのシーク関連セッション変数をクリア
-                    for key in ['_seek_sec', 'sec', '_force_reload']:
-                        if key in st.session_state:
-                            del st.session_state[key]
-                    # seek_to関数を直接呼び出し
-                    seek_to(emo_time)
-                    # 即座に再読み込み
-                    st.rerun()
+            for i, row in display_df.iterrows():
+                cols = st.columns([2, 3, 3, 1])
+                
+                with cols[0]:
+                    st.markdown(f"**{row['time_formatted']}**")
+                
+                with cols[1]:
+                    st.markdown(f"**{row['emotion_type_ja']}**")
+                
+                with cols[2]:
+                    # 信頼度スコアをプログレスバーとして表示
+                    score = row['confidence_score']
+                    st.progress(score)
+                    st.caption(f"信頼度: {score:.2f}")
+                
+                with cols[3]:
+                    # ジャンプボタン
+                    if st.button("▶️", key=f"emotion_{i}"):
+                        # 一時変数に保存してから、seek_to関数を呼び出す
+                        emotion_time = float(row['time_seconds'])
+                        print(f"感情分析ボタン{i}がクリックされました: {emotion_time}秒")
+                        # 関数呼び出し前にすべてのシーク関連セッション変数をクリア
+                        for key in ['_seek_sec', 'sec', '_force_reload']:
+                            if key in st.session_state:
+                                del st.session_state[key]
+                        # seek_to関数を直接呼び出し
+                        seek_to(emotion_time)
+                        # 即座に再読み込み
+                        st.rerun()
+                
+                # 区切り線
+                st.divider()
             
             if len(emotion_df) > max_rows:
                 st.info(f"表示件数を制限しています（{max_rows}/{len(emotion_df)}件表示）")

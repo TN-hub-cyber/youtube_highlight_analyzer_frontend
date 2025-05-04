@@ -111,24 +111,20 @@ def prepare_emotion_data(emotion_data):
     df = pd.DataFrame(emotion_data)
     
     # 必要な列が存在することを確認
-    required_columns = ['time_seconds', 'emotion_type', 'normalized_score']
+    required_columns = ['time_seconds', 'emotion_type', 'confidence_score']
     if not all(col in df.columns for col in required_columns):
         missing = [col for col in required_columns if col not in df.columns]
         st.warning(f"感情分析データに必要な列が不足しています: {', '.join(missing)}")
         return pd.DataFrame()
     
-    # ピボットテーブルで各感情タイプを列に変換
-    pivot_df = df.pivot_table(
-        index='time_seconds', 
-        columns='emotion_type', 
-        values='normalized_score', 
-        aggfunc='max'
-    ).reset_index()
+    # 表示用にデータを整理（ピボットせずに元の形式を維持）
+    # 必要な列だけを選択
+    result_df = df[['time_seconds', 'emotion_type', 'confidence_score']].copy()
     
-    # 欠損値を0で埋める
-    pivot_df = pivot_df.fillna(0)
+    # 時間順にソート
+    result_df = result_df.sort_values('time_seconds')
     
-    return pivot_df
+    return result_df
 
 
 @st.cache_data
