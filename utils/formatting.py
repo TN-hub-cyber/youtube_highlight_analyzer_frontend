@@ -138,10 +138,29 @@ def create_metrics_chart(metrics_df, selected_time=None, height=300):
         ),
     )
     
-    # X軸のラベルを時:分:秒形式に変換
+    # X軸のラベルを時:分:秒形式に変換（表示数を制限して見やすく）
+    # 動画の長さに応じて適切な間隔でティックを生成
+    max_time = metrics_df['time_seconds'].max()
+    time_span = max_time - metrics_df['time_seconds'].min()
+    
+    # 動画の長さに応じてティックの間隔を調整
+    if time_span > 3600:  # 1時間以上
+        tick_interval = 600  # 10分間隔
+    elif time_span > 1800:  # 30分以上
+        tick_interval = 300  # 5分間隔
+    elif time_span > 600:  # 10分以上
+        tick_interval = 120  # 2分間隔
+    else:
+        tick_interval = 60   # 1分間隔
+    
+    # 均等な間隔でティック位置を生成
+    tick_positions = list(range(0, int(max_time) + tick_interval, tick_interval))
+    
     fig.update_xaxes(
-        tickvals=metrics_df['time_seconds'].tolist(),
-        ticktext=[format_time(t) for t in metrics_df['time_seconds'].tolist()]
+        tickvals=tick_positions,
+        ticktext=[format_time(t) for t in tick_positions],
+        tickangle=0,  # ラベルを水平に保つ
+        tickfont=dict(size=10)  # フォントサイズを小さくして重なりを防ぐ
     )
     
     return fig
@@ -229,10 +248,29 @@ def create_multi_term_chart(comment_hist_df, terms, selected_time=None, height=3
         ),
     )
     
-    # X軸のラベルを時:分:秒形式に変換
+    # X軸のラベルを時:分:秒形式に変換（表示数を制限して見やすく）
+    # 動画の長さに応じて適切な間隔でティックを生成
+    max_time = comment_hist_df['time_seconds'].max()
+    time_span = max_time - comment_hist_df['time_seconds'].min()
+    
+    # 動画の長さに応じてティックの間隔を調整
+    if time_span > 3600:  # 1時間以上
+        tick_interval = 600  # 10分間隔
+    elif time_span > 1800:  # 30分以上
+        tick_interval = 300  # 5分間隔
+    elif time_span > 600:  # 10分以上
+        tick_interval = 120  # 2分間隔
+    else:
+        tick_interval = 60   # 1分間隔
+    
+    # 均等な間隔でティック位置を生成
+    tick_positions = list(range(0, int(max_time) + tick_interval, tick_interval))
+    
     fig.update_xaxes(
-        tickvals=comment_hist_df['time_seconds'].tolist(),
-        ticktext=[format_time(t) for t in comment_hist_df['time_seconds'].tolist()]
+        tickvals=tick_positions,
+        ticktext=[format_time(t) for t in tick_positions],
+        tickangle=0,  # ラベルを水平に保つ
+        tickfont=dict(size=10)  # フォントサイズを小さくして重なりを防ぐ
     )
     
     return fig
@@ -334,10 +372,29 @@ def create_emotion_chart(emotion_df, selected_time=None, height=300):
         ),
     )
     
-    # X軸のラベルを時:分:秒形式に変換
+    # X軸のラベルを時:分:秒形式に変換（表示数を制限して見やすく）
+    # 動画の長さに応じて適切な間隔でティックを生成
+    max_time = emotion_df['time_seconds'].max()
+    time_span = max_time - emotion_df['time_seconds'].min()
+    
+    # 動画の長さに応じてティックの間隔を調整
+    if time_span > 3600:  # 1時間以上
+        tick_interval = 600  # 10分間隔
+    elif time_span > 1800:  # 30分以上
+        tick_interval = 300  # 5分間隔
+    elif time_span > 600:  # 10分以上
+        tick_interval = 120  # 2分間隔
+    else:
+        tick_interval = 60   # 1分間隔
+    
+    # 均等な間隔でティック位置を生成
+    tick_positions = list(range(0, int(max_time) + tick_interval, tick_interval))
+    
     fig.update_xaxes(
-        tickvals=emotion_df['time_seconds'].tolist(),
-        ticktext=[format_time(t) for t in emotion_df['time_seconds'].tolist()]
+        tickvals=tick_positions,
+        ticktext=[format_time(t) for t in tick_positions],
+        tickangle=0,  # ラベルを水平に保つ
+        tickfont=dict(size=10)  # フォントサイズを小さくして重なりを防ぐ
     )
     
     return fig

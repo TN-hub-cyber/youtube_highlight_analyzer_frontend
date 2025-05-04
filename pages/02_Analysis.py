@@ -556,6 +556,9 @@ with tabs[1]:
                 # 時間順にソート
                 comments_df = comments_df.sort_values('time_seconds')
                 
+                # 最新のコメントを表示するため、時間の降順にソート
+                comments_df = comments_df.sort_values('time_seconds', ascending=False)
+                
                 # コメント一覧の表示（最大100件）
                 max_comments = min(100, len(comments_df))
                 st.subheader(f"最新コメント (全{len(comments_df)}件中 {max_comments}件表示)")
