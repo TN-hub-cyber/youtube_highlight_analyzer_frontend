@@ -23,14 +23,22 @@ def youtube_player(video_id, width=700, height=400, start_seconds=0, auto_play=T
     if 'current_time' not in st.session_state:
         st.session_state.current_time = start_seconds
     
+    # セッション状態のデバッグ情報
+    session_keys = [key for key in st.session_state.keys() if key in ['_seek_sec', 'sec', 'current_time']]
+    print(f"YouTubeプレイヤー初期化時のセッション状態: {session_keys}")
+    for key in session_keys:
+        print(f"  {key}: {st.session_state.get(key)}")
+    
     # 新しいシーク変数を確認（_seek_secがある場合はこちらを優先）
     seek_target = None
     if '_seek_sec' in st.session_state:
         seek_target = st.session_state['_seek_sec']
+        print(f"シーク命令を検出: {seek_target}秒")
         # youtube_player.py内ではまだ削除しない（使用後にAnalysis.py側で削除）
     elif 'sec' in st.session_state:
         # 旧方式との互換性のため残す
-        start_seconds = st.session_state['sec']
+        seek_target = st.session_state['sec']
+        print(f"旧式シーク命令を検出: {seek_target}秒")
         del st.session_state['sec']  # 使用したらクリア
     
     # シークボタンのHTML生成（必ず表示されるようにデバッグ情報も追加）
@@ -287,19 +295,116 @@ def player_controls(time_seconds=None, show_time=True):
             st.text(f"🕒 {format_time(time_seconds)}")
 
 
-def seek_to(time_seconds):
+def seek_to(time_seconds, source_id=None):
     """
     指定時間にシークするコールバック関数
     
     Args:
         time_seconds: シーク先の時間（秒）
+        source_id: シーク命令の発生源を示す識別子（オプション）
     """
     if time_seconds is not None:
-        # 新しいシステム - 時刻をセッションに保存するだけ
-        st.session_state['_seek_sec'] = time_seconds
+        # ===== ステップ1: 呼び出し情報の記録 =====
+        # 引数の時間値をローカル変数にコピーして明示的に処理
+        target_seconds = float(time_seconds)
         
-        # 旧システムとの互換性のため
-        st.session_state['sec'] = time_seconds
+        # 発生源の識別（呼び出し元の情報を取得）
+        import traceback
+        import time
+        import random
+        
+        # 呼び出し元の詳細情報を取得
+        call_stack = traceback.format_stack()
+        caller_info = call_stack[-2]
+        
+        # 発生源IDがない場合は、呼び出し元の情報から抽出を試みる
+        if source_id is None:
+            if "display_metrics_graph" in caller_info:
+                source_id = "metrics_graph"
+            elif "display_search_graph" in caller_info:
+                source_id = "search_graph"
+            elif "display_emotion_graph" in caller_info:
+                source_id = "emotion_graph"
+            elif "chapter_" in caller_info:
+                source_id = "chapter_button"
+            elif "comment_" in caller_info:
+                source_id = "comment_button"
+            elif "transcript_" in caller_info:
+                source_id = "transcript_button"
+            elif "emotion_seek" in caller_info:
+                source_id = "emotion_slider"
+            else:
+                source_id = "unknown"
+        
+        # 現在のタイムスタンプをミリ秒単位で取得
+        timestamp = int(time.time() * 1000)
+        
+        # ランダムなユニークIDを生成（衝突を避けるため）
+        unique_id = random.randint(10000, 99999)
+        
+        # 完全に一意のシーク操作IDを生成
+        seek_operation_id = f"{source_id}_{timestamp}_{unique_id}"
+        
+        # ===== ステップ2: デバッグログの出力 =====
+        print(f"\n===== シーク操作開始: ID={seek_operation_id} =====")
+        print(f"➤ 実行時間: {time.strftime('%H:%M:%S')}")
+        print(f"➤ シーク先: {target_seconds}秒（元の値: {time_seconds}）")
+        print(f"➤ 発生源: {source_id}")
+        print(f"➤ 呼び出し元: {caller_info.strip()}")
+        
+        # セッション状態の現在値をデバッグ出力
+        print("\n現在のセッション状態:")
+        seek_vars = [k for k in st.session_state.keys() if any(x in k for x in ['seek', 'sec', 'reload', 'command'])]
+        for k in seek_vars:
+            print(f"  {k} = {st.session_state.get(k)}")
+        
+        # ===== ステップ3: トランザクション的アプローチ =====
+        try:
+            # ステップ3.1: 新しいシーク操作のための準備
+            # 進行中のシーク操作をキャンセル（前回の操作が途中で中断されている可能性がある）
+            for key in ['_active_seek_operation', '_seek_sec', 'sec', '_force_reload', 
+                        '_direct_seek_command', '_seek_id', '_seek_command_executed']:
+                if key in st.session_state:
+                    print(f"  前回の値をクリア: {key}={st.session_state[key]}")
+                    del st.session_state[key]
+            
+            # ステップ3.2: 完全に新しいシーク操作の開始
+            # アクティブなシーク操作としてマーク
+            st.session_state['_active_seek_operation'] = seek_operation_id
+            print(f"  新しいシーク操作を設定: _active_seek_operation={seek_operation_id}")
+            
+            # 新しいシーク値を設定（数値として明示的に処理）
+            st.session_state['_seek_sec'] = target_seconds
+            st.session_state['sec'] = target_seconds  # 互換性のため
+            print(f"  新しいシーク値を設定: _seek_sec={target_seconds}")
+            
+            # 即時プレイヤー更新を行うためのマーカーを設定
+            st.session_state['_force_reload'] = True
+            print(f"  _force_reload=True を設定")
+            
+            # 明示的なシーク命令フラグを追加
+            st.session_state['_direct_seek_command'] = True
+            print(f"  _direct_seek_command=True を設定")
+            
+            # 発生源情報を保存
+            st.session_state['_seek_source'] = source_id
+            print(f"  _seek_source={source_id} を設定")
+            
+            # スケジュールされたクリーンアップフラグを設定（シーク完了後、全変数をクリアするため）
+            st.session_state['_pending_cleanup'] = True
+            print(f"  _pending_cleanup=True を設定")
+            
+            # シーク命令IDを関連付け
+            st.session_state['_seek_id'] = unique_id
+            print(f"  _seek_id={unique_id} を設定")
+            
+            # 操作完了ステータスを記録
+            print("\n⚑ シーク操作の設定が完了しました。リロード後に実行されます。")
+            
+        except Exception as e:
+            print(f"\n❌ エラー: seek_to関数内で例外が発生しました: {e}")
+            import traceback
+            traceback.print_exc()
 
 
 def create_seek_command(container=st):
@@ -339,12 +444,22 @@ def create_seek_command(container=st):
                         // iframeのYouTubeプレイヤーオブジェクトにアクセスを試みる
                         // 注：Same-Originポリシーにより通常は失敗するが、実験的に試みる
                         try {{
-                            var target = {{
+                            // 両方のフォーマットでメッセージを送信（一方が失敗しても他方が動作する可能性がある）
+                            // type形式のメッセージ（リスナーが期待する形式）
+                            var typeMsg = {{
+                                'type': 'seek',
+                                'sec': {sec}
+                            }};
+                            youtubeIframes[i].contentWindow.postMessage(JSON.stringify(typeMsg), '*');
+                            
+                            // command形式のメッセージ（従来の形式）
+                            var commandMsg = {{
                                 'command': 'seek',
                                 'seconds': {sec}
                             }};
-                            youtubeIframes[i].contentWindow.postMessage(JSON.stringify(target), '*');
-                            console.log('YouTube iframe[' + i + ']にシーク命令を送信しました');
+                            youtubeIframes[i].contentWindow.postMessage(JSON.stringify(commandMsg), '*');
+                            
+                            console.log('YouTube iframe[' + i + ']に両形式のシーク命令を送信しました');
                         }} catch (e) {{
                             console.log('iframe[' + i + ']へのアクセスに失敗: ' + e);
                         }}

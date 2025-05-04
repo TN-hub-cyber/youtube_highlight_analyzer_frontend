@@ -77,8 +77,46 @@ video_id = st.session_state['vid']
 youtube_video_id = st.session_state['youtube_video_id']
 granularity = st.session_state['granularity']
 
-# シーク命令を送信するJavaScriptを作成
+# シーク命令を処理
 create_seek_command()
+
+# 複雑なシーク状態管理 - 優先度順に処理（クリーンアップはプレイヤー初期化後に移動）
+
+# 1. 直接シーク命令フラグがある場合の処理（優先）
+if '_direct_seek_command' in st.session_state and st.session_state.get('_direct_seek_command', False):
+    # 操作IDと詳細を記録
+    operation_id = st.session_state.get('_active_seek_operation', '不明')
+    seek_id = st.session_state.get('_seek_id', '不明')
+    seek_time = st.session_state.get('_seek_sec', 0)
+    seek_source = st.session_state.get('_seek_source', '不明')
+    
+    print(f"\n===== シーク命令実行: ID={operation_id} =====")
+    print(f"➤ 詳細: 操作ID={operation_id}, シークID={seek_id}")
+    print(f"➤ 時間: {seek_time}秒, 発生源: {seek_source}")
+    
+    # シーク命令実行済みフラグをセット
+    st.session_state['_seek_command_executed'] = True
+    
+    # シーク命令フラグのみクリア（値は保持してプレイヤーに渡す）
+    del st.session_state['_direct_seek_command']
+    
+    # クリーンアップをスケジュール（プレイヤー表示後にクリア）
+    st.session_state['_cleanup_after_player'] = True
+    
+    # 即座にページをリロード
+    print(f"➤ 再読み込み開始...")
+    st.rerun()
+
+# 2. フォースリロードフラグがある場合は処理し、クリア
+elif '_force_reload' in st.session_state:
+    print(f"\n===== フォースリロードフラグを検出 =====")
+    # フラグをクリア
+    del st.session_state['_force_reload']
+    # 即座にページをリロード
+    print(f"➤ 再読み込み開始...")
+    st.rerun()
+
+# 3. クリーンアップはプレイヤー初期化後に移動（下記に記載）
 
 # データロード中の表示
 with st.spinner("動画データを読み込み中..."):
@@ -143,20 +181,48 @@ with col1:
                     f"{format_time(chapter['time_seconds'])} - {chapter['title'][:20]}..."
                 ))
     
-    # YouTubeプレイヤーにシークポイントを渡す
-    current_time = youtube_player(
-        video_id=youtube_video_id,
-        width=650,
-        height=450,  # 少し高くして、ボタンの表示スペースを確保
-        start_seconds=0,
-        auto_play=True,
-        show_seek_buttons=True,  # シークボタンを表示
-        seek_points=seek_points   # シークポイントリストを渡す
-    )
+# YouTubeプレイヤーにシークポイントを渡す
+current_time = youtube_player(
+    video_id=youtube_video_id,
+    width=650,
+    height=450,  # 少し高くして、ボタンの表示スペースを確保
+    start_seconds=0,
+    auto_play=True,
+    show_seek_buttons=True,  # シークボタンを表示
+    seek_points=seek_points   # シークポイントリストを渡す
+)
+
+# プレイヤー初期化後にクリーンアップ処理を実行（重要：順序を変更）
+# このタイミングでクリーンアップすることで、プレイヤーがシーク値を読み込んだ後に変数を削除できる
+if '_pending_cleanup' in st.session_state and st.session_state.get('_pending_cleanup', False):
+    print(f"\n===== 保留中のクリーンアップ処理を実行 =====")
+    # クリーンアップフラグを削除
+    del st.session_state['_pending_cleanup']
     
-    # シーク処理が完了したら変数をクリア
+    # クリーンアップすべき変数リスト（すべてのシーク関連変数）
+    cleanup_vars = [
+        '_active_seek_operation', '_seek_sec', 'sec', '_force_reload', 
+        '_direct_seek_command', '_seek_id', '_seek_command_executed',
+        '_seek_source'
+    ]
+    
+    # 存在する変数のみクリア
+    for key in cleanup_vars:
+        if key in st.session_state:
+            print(f"  クリーンアップ: {key}={st.session_state[key]}")
+            del st.session_state[key]
+    
+    print(f"  クリーンアップ完了")
+    
+    # シーク処理が完了したら変数をクリア - 優先度の高い処理として最初に配置
     if '_seek_sec' in st.session_state:
+        print(f"プレイヤー初期化完了: _seek_sec={st.session_state['_seek_sec']}をクリア")
         del st.session_state['_seek_sec']
+        # 他の関連変数もクリア
+        for key in ['sec', '_force_reload', '_direct_seek_command', '_seek_id', '_seek_command_executed']:
+            if key in st.session_state:
+                print(f"  関連変数をクリア: {key}")
+                del st.session_state[key]
 
 with col2:
     # コントロールパネル
@@ -224,10 +290,11 @@ with col2:
 st.subheader("メトリクス")
 clicked_time = display_metrics_graph(metrics_data, current_time)
 
-# グラフがクリックされた場合はシーク
-if clicked_time is not None:
-    st.session_state['sec'] = clicked_time
-    st.rerun()
+# グラフがクリックされた場合はシークは既にseek_to関数内で処理されているので
+# ここでは特に何もする必要はない（修正済み）
+# if clicked_time is not None:
+#     # 修正済み - metrics_graph.py内でseek_to関数を使用している
+#     pass
 
 # タブコンテンツ - アクティブタブの管理
 if 'active_tab' not in st.session_state:
@@ -296,8 +363,15 @@ with tabs[0]:
                     
                 with cols[3]:
                     if st.button("▶", key=f"chapter_{i}"):
+                        # 一時変数に保存してから、seek_to関数を呼び出す
+                        chapter_time = float(row['秒数'])
+                        print(f"チャプターボタン{i}がクリックされました: {chapter_time}秒")
+                        # 関数呼び出し前にすべてのシーク関連セッション変数をクリア
+                        for key in ['_seek_sec', 'sec', '_force_reload']:
+                            if key in st.session_state:
+                                del st.session_state[key]
                         # seek_to関数を直接呼び出し
-                        seek_to(row['秒数'])
+                        seek_to(chapter_time)
                         # 即座に再読み込み
                         st.rerun()
                 
@@ -311,7 +385,16 @@ with tabs[0]:
                 col_index = i % 4
                 with cols[col_index]:
                     if st.button(format_time(chapter['time_seconds']), key=f"quick_ch_{i}"):
-                        seek_to(chapter['time_seconds'])
+                        # 一時変数に保存してから、seek_to関数を呼び出す
+                        chapter_time = float(chapter['time_seconds'])
+                        print(f"クイックジャンプボタン{i}がクリックされました: {chapter_time}秒")
+                        # 関数呼び出し前にすべてのシーク関連セッション変数をクリア
+                        for key in ['_seek_sec', 'sec', '_force_reload']:
+                            if key in st.session_state:
+                                del st.session_state[key]
+                        # seek_to関数を直接呼び出し
+                        seek_to(chapter_time)
+                        # 即座に再読み込み
                         st.rerun()
             
             # ユーザーへの注意表示
@@ -374,10 +457,10 @@ with tabs[1]:
             st.subheader("検索語の出現頻度")
             clicked_time_search = display_search_graph(comment_hist_data, search_terms, current_time)
             
-            # グラフがクリックされた場合はシーク
-            if clicked_time_search is not None:
-                st.session_state['sec'] = clicked_time_search
-                st.rerun()
+            # グラフがクリックされた場合はシークは既にdisplay_search_graph内で処理されている
+            # if clicked_time_search is not None:
+            #     # 修正済み - metrics_graph.py内でseek_to関数を使用している
+            #     pass
             
             # ソート
             results_df = pd.DataFrame(search_results)
@@ -410,8 +493,16 @@ with tabs[1]:
                     
                     with col3:
                         if st.button("▶️", key=f"comment_{comment['id']}"):
-                            # セッション変数で設定してからリロード
-                            seek_to(comment['time_seconds'])
+                            # 一時変数に保存してから、seek_to関数を呼び出す
+                            comment_time = float(comment['time_seconds'])
+                            print(f"コメント再生ボタンがクリックされました: {comment_time}秒")
+                            # 関数呼び出し前にすべてのシーク関連セッション変数をクリア
+                            for key in ['_seek_sec', 'sec', '_force_reload']:
+                                if key in st.session_state:
+                                    del st.session_state[key]
+                            # seek_to関数を直接呼び出し
+                            seek_to(comment_time)
+                            # 即座に再読み込み
                             st.rerun()
                     
                     st.markdown("---")
@@ -450,8 +541,16 @@ with tabs[1]:
                     
                     with col3:
                         if st.button("▶️", key=f"comment_{comment['id']}"):
-                            # セッション変数で設定してからリロード
-                            seek_to(comment['time_seconds'])
+                            # 一時変数に保存してから、seek_to関数を呼び出す
+                            comment_time = float(comment['time_seconds'])
+                            print(f"コメント再生ボタンがクリックされました: {comment_time}秒")
+                            # 関数呼び出し前にすべてのシーク関連セッション変数をクリア
+                            for key in ['_seek_sec', 'sec', '_force_reload']:
+                                if key in st.session_state:
+                                    del st.session_state[key]
+                            # seek_to関数を直接呼び出し
+                            seek_to(comment_time)
+                            # 即座に再読み込み
                             st.rerun()
                     
                     st.markdown("---")
@@ -510,8 +609,16 @@ with tabs[2]:
                 
                 with col3:
                     if st.button("▶️", key=f"transcript_{transcript['id']}"):
-                        # シーク関数を直接呼び出す - セッション変数を設定してからリロード
-                        seek_to(transcript['time_seconds'])
+                        # 一時変数に保存してから、seek_to関数を呼び出す
+                        trans_time = float(transcript['time_seconds'])
+                        print(f"文字起こし再生ボタンがクリックされました: {trans_time}秒")
+                        # 関数呼び出し前にすべてのシーク関連セッション変数をクリア
+                        for key in ['_seek_sec', 'sec', '_force_reload']:
+                            if key in st.session_state:
+                                del st.session_state[key]
+                        # seek_to関数を直接呼び出し
+                        seek_to(trans_time)
+                        # 即座に再読み込み
                         st.rerun()
                 
                 st.markdown("---")
@@ -602,8 +709,16 @@ with tabs[3]:
             
             with col2:
                 if st.button("▶️ ジャンプ", key="emotion_seek"):
-                    # シーク関数を直接呼び出す
-                    seek_to(selected_time)
+                    # 一時変数に保存してから、seek_to関数を呼び出す
+                    emo_time = float(selected_time)
+                    print(f"感情分析ジャンプボタンがクリックされました: {emo_time}秒")
+                    # 関数呼び出し前にすべてのシーク関連セッション変数をクリア
+                    for key in ['_seek_sec', 'sec', '_force_reload']:
+                        if key in st.session_state:
+                            del st.session_state[key]
+                    # seek_to関数を直接呼び出し
+                    seek_to(emo_time)
+                    # 即座に再読み込み
                     st.rerun()
             
             if len(emotion_df) > max_rows:
