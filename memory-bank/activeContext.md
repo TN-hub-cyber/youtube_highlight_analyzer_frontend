@@ -123,7 +123,7 @@
 1. **データベース接続と RPC 関数に関する問題**
 
    - 動画詳細情報の取得エラー：`{'code': 'PGRST116', 'details': 'The result contains 0 rows', 'hint': None, 'message': 'JSON object requested, multiple (or no) rows returned'}`
-   - RPC 関数が見つからないエラー：`'Could not find the function public.metrics_agg(_g, _vid) in the schema cache'`
+   - ✅ RPC 関数のエラー修正完了：`multi_term_comment_hist`と`search_comments_multi`関数の構文エラーとデータ型の不一致問題を解決
    - クライアントサイド実装の未定義エラー：`name 'client_side_metrics_agg' is not defined`
    - 循環インポートの問題：`utils/supabase_client.py`と`utils/data_utils.py`間の相互参照によるエラー
    - データベース内のデータ有無、取得するテーブルやカラムの適正化を優先的に確認する必要あり
@@ -148,6 +148,7 @@
    - レスポンシブ性とモバイル対応の検討
    - 感情分析をグラフから表形式表示に変更
    - 感情分析グラフで出力されていないカラムがある問題 - 取得カラムの再確認が必要
+   - コメントの検索語入力と文字起こし検索の横に「クリア」ボタンを追加し、クリックで検索結果をクリアする機能を実装
 
 ## グラフクリック時の無限リロード問題の解決（2025/5/4 更新）
 

@@ -414,11 +414,24 @@ with tabs[1]:
     st.session_state['active_tab'] = 1
     st.header("コメント分析")
     
-    # 検索語入力
+    # 検索状態の保持
+    if 'comment_search_terms_input' not in st.session_state:
+        st.session_state['comment_search_terms_input'] = ""
+    if 'comment_match_type' not in st.session_state:
+        st.session_state['comment_match_type'] = "いずれかを含む"
+    if 'comment_sort_method' not in st.session_state:
+        st.session_state['comment_sort_method'] = "関連度"
+    
+    # 検索語入力（セッション状態から初期値を取得）
     search_terms_input = st.text_input(
         "検索語を入力（複数語はカンマで区切る）",
+        value=st.session_state['comment_search_terms_input'],
         placeholder="例: かわいい, すごい, 面白い"
     )
+    
+    # 検索入力が変更されたらセッション状態を更新
+    if search_terms_input != st.session_state['comment_search_terms_input']:
+        st.session_state['comment_search_terms_input'] = search_terms_input
     
     search_terms = [term.strip() for term in search_terms_input.split(',')] if search_terms_input else []
     
@@ -430,15 +443,23 @@ with tabs[1]:
             match_type = st.radio(
                 "検索条件",
                 ["いずれかを含む", "すべてを含む"],
-                horizontal=True
+                horizontal=True,
+                index=0 if st.session_state['comment_match_type'] == "いずれかを含む" else 1
             )
+            # 値が変更されたらセッション状態を更新
+            if match_type != st.session_state['comment_match_type']:
+                st.session_state['comment_match_type'] = match_type
         
         with col2:
             sort_method = st.radio(
                 "並び順",
                 ["関連度", "時間順"],
-                horizontal=True
+                horizontal=True,
+                index=0 if st.session_state['comment_sort_method'] == "関連度" else 1
             )
+            # 値が変更されたらセッション状態を更新
+            if sort_method != st.session_state['comment_sort_method']:
+                st.session_state['comment_sort_method'] = sort_method
         
         # 検索処理
         with st.spinner("コメントを検索中..."):
@@ -569,7 +590,14 @@ with tabs[2]:
     st.header("文字起こし")
     
     # 検索フィルター
-    transcript_search = st.text_input("🔍 文字起こしを検索", "")
+    if 'transcript_search' not in st.session_state:
+        st.session_state['transcript_search'] = ""
+    
+    transcript_search = st.text_input("🔍 文字起こしを検索", value=st.session_state['transcript_search'])
+    
+    # 検索語が変更されたらセッション状態を更新
+    if transcript_search != st.session_state['transcript_search']:
+        st.session_state['transcript_search'] = transcript_search
     
     with st.spinner("文字起こしデータを読み込み中..."):
         transcriptions_data = get_transcriptions(video_id)
@@ -591,7 +619,11 @@ with tabs[2]:
             filtered_transcripts = filtered_transcripts.sort_values('time_seconds')
             
             # 文字起こし一覧の表示
-            for _, transcript in filtered_transcripts.iterrows():
+            for i, (_, transcript) in enumerate(filtered_transcripts.iterrows()):
+                # データの検証
+                if 'time_seconds' not in transcript or 'transcription' not in transcript:
+                    continue  # 必要なデータがない行はスキップ
+                
                 col1, col2, col3 = st.columns([2, 9, 1])
                 
                 with col1:
@@ -599,16 +631,30 @@ with tabs[2]:
                     st.markdown(f"**{time_str}**")
                 
                 with col2:
-                    text = transcript['transcription']
+                    # テキストの確認と整形
+                    if not isinstance(transcript['transcription'], str):
+                        text = str(transcript['transcription'])
+                    else:
+                        text = transcript['transcription']
                     
-                    # 検索語をハイライト
-                    if transcript_search and transcript_search in text:
-                        text = text.replace(transcript_search, f"**{transcript_search}**")
+                    # 検索語をハイライト（大文字小文字を区別しない）
+                    if transcript_search:
+                        import re
+                        pattern = re.compile(re.escape(transcript_search), re.IGNORECASE)
+                        matches = list(pattern.finditer(text))
+                        if matches:
+                            # マッチした部分を強調表示
+                            for match in reversed(matches):  # 後ろから処理して位置がずれないようにする
+                                start, end = match.span()
+                                match_text = text[start:end]
+                                text = text[:start] + f"**{match_text}**" + text[end:]
                     
                     st.markdown(text)
                 
                 with col3:
-                    if st.button("▶️", key=f"transcript_{transcript['id']}"):
+                    # ユニークなボタンキー（インデックスと時間を組み合わせて一意性を確保）
+                    unique_key = f"transcript_{i}_{hash(str(transcript.get('id', '')))}"
+                    if st.button("▶️", key=unique_key):
                         # 一時変数に保存してから、seek_to関数を呼び出す
                         trans_time = float(transcript['time_seconds'])
                         print(f"文字起こし再生ボタンがクリックされました: {trans_time}秒")

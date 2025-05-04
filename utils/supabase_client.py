@@ -240,6 +240,20 @@ def get_multi_term_comment_hist(video_id, terms, granularity=5):
         # 元のIDを保存
         original_id = video_id
         
+        # "/"などの特殊文字を含む検索語や、time_seconds ambiguousエラーを回避するためクライアントサイド実装にフォールバック
+        has_special_chars = any('/' in term for term in terms)
+        if has_special_chars:
+            print("特殊文字を含む検索語が検出されたため、クライアントサイド処理に切り替えます")
+            from utils.data_utils import client_side_multi_term_comment_hist
+            return client_side_multi_term_comment_hist(original_id, terms, granularity)
+        
+        # 検索語の特殊文字をエスケープ
+        sanitized_terms = []
+        for term in terms:
+            # SQL文の中で特殊文字として扱われる可能性のある文字をエスケープ
+            sanitized_term = term.replace("\\", "\\\\").replace("'", "''").replace("%", "\\%").replace("_", "\\_").replace('"', '""')
+            sanitized_terms.append(sanitized_term)
+        
         # まず、数値IDかどうかを判断
         try:
             numeric_id = int(video_id)
@@ -251,17 +265,32 @@ def get_multi_term_comment_hist(video_id, terms, granularity=5):
         try:
             # 数値IDの場合
             if is_numeric:
-                response = supabase.rpc("multi_term_comment_hist", {"_vid": numeric_id, "_terms": terms, "_g": granularity}).execute()
-                if response.data:
-                    return response.data
+                # 'time_seconds is ambiguous'エラーが発生する可能性があるため、try-exceptで囲む
+                try:
+                    response = supabase.rpc("multi_term_comment_hist", {"_vid": numeric_id, "_terms": sanitized_terms, "_g": granularity}).execute()
+                    if response.data:
+                        return response.data
+                except Exception as inner_error:
+                    if 'ambiguous' in str(inner_error):
+                        print(f"time_seconds ambiguousエラーが発生したため、クライアントサイド処理に切り替えます")
+                        raise Exception(f"ambiguous error: {inner_error}")
+                    else:
+                        raise
             
             # 文字列IDの場合、内部IDを探してから試す
             detail_resp = supabase.table("videos").select("id").eq("video_id", str(video_id)).limit(1).execute()
             if detail_resp.data and len(detail_resp.data) > 0:
                 internal_id = detail_resp.data[0]['id']
-                response = supabase.rpc("multi_term_comment_hist", {"_vid": internal_id, "_terms": terms, "_g": granularity}).execute()
-                if response.data:
-                    return response.data
+                try:
+                    response = supabase.rpc("multi_term_comment_hist", {"_vid": internal_id, "_terms": sanitized_terms, "_g": granularity}).execute()
+                    if response.data:
+                        return response.data
+                except Exception as inner_error:
+                    if 'ambiguous' in str(inner_error):
+                        print(f"time_seconds ambiguousエラーが発生したため、クライアントサイド処理に切り替えます")
+                        raise Exception(f"ambiguous error: {inner_error}")
+                    else:
+                        raise
                     
             print(f"RPC multi_term_comment_hist - 両方のID形式での呼び出しに失敗: id={video_id}")
             
@@ -287,6 +316,20 @@ def search_comments_multi(video_id, terms, match_type="any"):
         # 元のIDを保存
         original_id = video_id
         
+        # "/"などの特殊文字を含む検索語がある場合は直接クライアントサイド実装にフォールバック
+        has_special_chars = any('/' in term for term in terms)
+        if has_special_chars:
+            print("特殊文字を含む検索語が検出されたため、クライアントサイド処理に切り替えます")
+            from utils.data_utils import client_side_search_comments_multi
+            return client_side_search_comments_multi(original_id, terms, match_type)
+        
+        # 検索語の特殊文字をエスケープ
+        sanitized_terms = []
+        for term in terms:
+            # SQL文の中で特殊文字として扱われる可能性のある文字をエスケープ
+            sanitized_term = term.replace("\\", "\\\\").replace("'", "''").replace("%", "\\%").replace("_", "\\_").replace('"', '""')
+            sanitized_terms.append(sanitized_term)
+        
         # 数値IDかどうかを判断
         try:
             numeric_id = int(video_id)
@@ -294,11 +337,11 @@ def search_comments_multi(video_id, terms, match_type="any"):
         except (ValueError, TypeError):
             is_numeric = False
         
-        # まずRPC関数を試す
+        # まずRPC関数を試す - エラーが発生しやすい場合はtry-exceptで囲む
         try:
             # 数値IDで試行
             if is_numeric:
-                response = supabase.rpc("search_comments_multi", {"_vid": numeric_id, "_terms": terms, "_match_type": match_type}).execute()
+                response = supabase.rpc("search_comments_multi", {"_vid": numeric_id, "_terms": sanitized_terms, "_match_type": match_type}).execute()
                 if response.data:
                     return response.data
             
@@ -306,7 +349,7 @@ def search_comments_multi(video_id, terms, match_type="any"):
             detail_resp = supabase.table("videos").select("id").eq("video_id", str(video_id)).limit(1).execute()
             if detail_resp.data and len(detail_resp.data) > 0:
                 internal_id = detail_resp.data[0]['id']
-                response = supabase.rpc("search_comments_multi", {"_vid": internal_id, "_terms": terms, "_match_type": match_type}).execute()
+                response = supabase.rpc("search_comments_multi", {"_vid": internal_id, "_terms": sanitized_terms, "_match_type": match_type}).execute()
                 if response.data:
                     return response.data
             
