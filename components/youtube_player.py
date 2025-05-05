@@ -29,12 +29,17 @@ def youtube_player(video_id, width=700, height=400, start_seconds=0, auto_play=T
     for key in session_keys:
         print(f"  {key}: {st.session_state.get(key)}")
     
-    # 新しいシーク変数を確認（_seek_secがある場合はこちらを優先）
+    # 新しいシーク変数を確認（優先順位付き）
     seek_target = None
     if '_seek_sec' in st.session_state:
         seek_target = st.session_state['_seek_sec']
         print(f"シーク命令を検出: {seek_target}秒")
         # youtube_player.py内ではまだ削除しない（使用後にAnalysis.py側で削除）
+    elif '_persist_position' in st.session_state:
+        # 保持された再生位置がある場合は使用
+        seek_target = st.session_state['_persist_position']
+        print(f"保持された再生位置を検出: {seek_target}秒")
+        del st.session_state['_persist_position']  # 使用したらクリア
     elif 'sec' in st.session_state:
         # 旧方式との互換性のため残す
         seek_target = st.session_state['sec']

@@ -11,7 +11,8 @@ from utils.supabase_client import (
     get_transcriptions,
     get_emotion_analysis,
     get_multi_term_comment_hist,
-    search_comments_multi
+    search_comments_multi,
+    get_volume_analysis_secondly
 )
 from utils.formatting import format_time
 
@@ -59,7 +60,16 @@ with st.sidebar:
     )
     
     if granularity != st.session_state['granularity']:
+        # 現在の再生位置を保持
+        current_position = st.session_state.get('sec', None)
+        
+        # 粒度設定を更新
         st.session_state['granularity'] = granularity
+        
+        # 再生位置を保持したまま再読み込み
+        if current_position is not None:
+            st.session_state['_persist_position'] = current_position
+        
         st.rerun()
     
     st.markdown("---")
@@ -127,8 +137,11 @@ with st.spinner("動画データを読み込み中..."):
         st.error("動画データの取得に失敗しました。")
         st.stop()
     
-    # メトリクスデータの取得
+# メトリクスデータの取得
     metrics_data = get_metrics_agg(video_id, granularity)
+    
+    # 詳細音量分析データの取得（metrics_graph.py内で使用）
+    volume_detail_data = get_volume_analysis_secondly(video_id)
 
 # ページタイトル
 st.title(f"📊 {video_details['title']}")
@@ -158,34 +171,30 @@ with col4:
     comment_count = f"{video_details['comment_count']:,}" if 'comment_count' in video_details else '不明'
     st.markdown(f"**コメント数**: {comment_count}")
 
-# YouTubeプレイヤーとコントロールパネルのレイアウト
-col1, col2 = st.columns([6, 4])
+# レイアウト最適化: プレイヤーを全幅で表示し、コントロールパネルを削除
+st.subheader("YouTube動画")
 
-with col1:
-    # YouTubeプレイヤー
-    st.subheader("YouTube動画")
-    
-    # チャプターデータを取得（先に読み込んでプレイヤーに渡す）
-    with st.spinner("チャプターデータを読み込み中..."):
-        chapters_data = get_chapters(video_id)
-    
-    # シークポイントリストを生成（チャプターから）
-    seek_points = []
-    if chapters_data:
-        chapters_df = pd.DataFrame(chapters_data)
-        if not chapters_df.empty:
-            for _, chapter in chapters_df.iterrows():
-                # (秒数, ラベル) の形式でシークポイントを追加
-                seek_points.append((
-                    chapter['time_seconds'], 
-                    f"{format_time(chapter['time_seconds'])} - {chapter['title'][:20]}..."
-                ))
-    
-# YouTubeプレイヤーにシークポイントを渡す
+# チャプターデータを取得（先に読み込んでプレイヤーに渡す）
+with st.spinner("チャプターデータを読み込み中..."):
+    chapters_data = get_chapters(video_id)
+
+# シークポイントリストを生成（チャプターから）
+seek_points = []
+if chapters_data:
+    chapters_df = pd.DataFrame(chapters_data)
+    if not chapters_df.empty:
+        for _, chapter in chapters_df.iterrows():
+            # (秒数, ラベル) の形式でシークポイントを追加
+            seek_points.append((
+                chapter['time_seconds'], 
+                f"{format_time(chapter['time_seconds'])} - {chapter['title'][:20]}..."
+            ))
+
+# YouTubeプレイヤーにシークポイントを渡す - 幅を広げて表示
 current_time = youtube_player(
     video_id=youtube_video_id,
-    width=650,
-    height=450,  # 少し高くして、ボタンの表示スペースを確保
+    width=800,
+    height=450,
     start_seconds=0,
     auto_play=True,
     show_seek_buttons=True,  # シークボタンを表示
@@ -224,71 +233,24 @@ if '_pending_cleanup' in st.session_state and st.session_state.get('_pending_cle
                 print(f"  関連変数をクリア: {key}")
                 del st.session_state[key]
 
-with col2:
-    # コントロールパネル
-    st.subheader("コントロールパネル")
-    
-    # 粒度設定
-    control_granularity = st.slider(
-        "データ粒度 (秒)",
-        min_value=1,
-        max_value=30,
-        value=granularity,
-        step=1,
-        key="control_panel_granularity",
-        help="時系列データの集計粒度を設定します。数値が小さいほど詳細なデータが表示されますが、処理が重くなる場合があります。"
-    )
-    
-    # 粒度が変更された場合はセッション状態を更新
-    if control_granularity != granularity:
-        st.session_state['granularity'] = control_granularity
-        st.rerun()
-    
-    # 区切り線
-    st.markdown("---")
-    
-    # コメント検索（複数指定可）
-    st.markdown("### コメント検索（複数指定可）")
-    search_terms_input = st.text_input(
-        "検索語を入力（複数語はカンマで区切る）", 
-        key="control_search_terms",
-        placeholder="例: かわいい, すごい, 面白い"
-    )
-    
-    # 検索語の処理
-    if search_terms_input:
-        search_terms = [term.strip() for term in search_terms_input.split(',') if term.strip()]
-        if search_terms:
-            # 検索条件
-            match_type = st.radio(
-                "検索条件",
-                ["いずれかを含む", "すべてを含む"],
-                horizontal=True,
-                key="control_match_type"
-            )
-            
-            # 検索ボタン
-            if st.button("検索", type="primary"):
-                # タブをコメントタブに切り替え
-                st.session_state['active_tab'] = 1  # コメントタブのインデックス
-                st.session_state['search_terms'] = search_terms
-                st.session_state['match_type'] = match_type
-                st.rerun()
-    
-    # 区切り線
-    st.markdown("---")
-    
-    # 現在位置
-    st.markdown(f"**現在位置**: {format_time(current_time) if current_time is not None else '00:00'}")
-    
-    # 詳細設定ボタン
-    if st.button("詳細設定", key="settings_button"):
-        st.session_state['show_settings'] = True
-        st.rerun()
+# 現在位置を表示 (コントロールパネルから移動)
+st.markdown(f"**現在位置**: {format_time(current_time) if current_time is not None else '00:00'}")
 
-# メトリクスグラフ
+# メトリクスグラフ - 現在時間をトラッキング
 st.subheader("メトリクス")
-clicked_time = display_metrics_graph(metrics_data, current_time)
+
+# 再生位置を常に最新の状態に保つ
+if '_seek_sec' in st.session_state:
+    # シーク命令がある場合はその位置を使う
+    track_position = st.session_state['_seek_sec']
+elif 'sec' in st.session_state:
+    # 古いセッション変数も確認
+    track_position = st.session_state['sec']
+else:
+    # YouTubeプレイヤーから返された現在位置を使用
+    track_position = current_time
+    
+clicked_time = display_metrics_graph(metrics_data, track_position)
 
 # グラフがクリックされた場合はシークは既にseek_to関数内で処理されているので
 # ここでは特に何もする必要はない（修正済み）
@@ -345,28 +307,23 @@ with tabs[0]:
             # データフレームとしてテーブル表示
             df = pd.DataFrame(table_data)
             
-            # ジャンプボタンを追加
+            # 改良版チャプター表示 - 視認性向上のためにレイアウトを改善
             for i, row in df.iterrows():
-                # 最もシンプルなレイアウト
-                cols = st.columns([1, 2, 8, 1])
+                # 情報とボタンを統合した大きめのボタン形式 UI
+                col1, col2 = st.columns([11, 1])
                 
-                with cols[0]:
-                    st.write(f"{row['番号']}")
-                    
-                with cols[1]:
-                    st.write(f"{row['時間']}")
-                    
-                with cols[2]:
-                    st.write(f"{row['タイトル']}")
+                with col1:
+                    # 左側に時間とタイトルを表示
+                    st.markdown(f"### {row['番号']}. {row['時間']} - {row['タイトル']}")
                     if row['説明']:
-                        st.caption(row['説明'])
-                    
-                with cols[3]:
-                    if st.button("▶", key=f"chapter_{i}"):
-                        # 一時変数に保存してから、seek_to関数を呼び出す
+                        st.markdown(f"<div style='margin-left: 20px; margin-top: -15px; font-size: 0.9em; color: #666;'>{row['説明']}</div>", unsafe_allow_html=True)
+                
+                with col2:
+                    # 右側にボタンを配置
+                    if st.button("▶", key=f"chapter_{i}", help=f"{row['時間']}にジャンプ"):
                         chapter_time = float(row['秒数'])
                         print(f"チャプターボタン{i}がクリックされました: {chapter_time}秒")
-                        # 関数呼び出し前にすべてのシーク関連セッション変数をクリア
+                        # 関数呼び出し前にシーク関連セッション変数をクリア
                         for key in ['_seek_sec', 'sec', '_force_reload']:
                             if key in st.session_state:
                                 del st.session_state[key]
@@ -375,32 +332,13 @@ with tabs[0]:
                         # 即座に再読み込み
                         st.rerun()
                 
-                # 視覚的な区切り
-                st.divider()
+                # 視覚的な区切り - より細いセパレーター
+                st.markdown("<hr style='margin: 5px 0; border-top: 1px solid #eee;'>", unsafe_allow_html=True)
             
-            # シンプルなボタンリスト
-            st.subheader("クイックジャンプ")
-            cols = st.columns(4)
-            for i, chapter in enumerate(chapters_data):
-                col_index = i % 4
-                with cols[col_index]:
-                    if st.button(format_time(chapter['time_seconds']), key=f"quick_ch_{i}"):
-                        # 一時変数に保存してから、seek_to関数を呼び出す
-                        chapter_time = float(chapter['time_seconds'])
-                        print(f"クイックジャンプボタン{i}がクリックされました: {chapter_time}秒")
-                        # 関数呼び出し前にすべてのシーク関連セッション変数をクリア
-                        for key in ['_seek_sec', 'sec', '_force_reload']:
-                            if key in st.session_state:
-                                del st.session_state[key]
-                        # seek_to関数を直接呼び出し
-                        seek_to(chapter_time)
-                        # 即座に再読み込み
-                        st.rerun()
-            
-            # ユーザーへの注意表示
+            # プレイヤー下部のボタンに関する注意表示
             st.markdown("""
-            <div style="font-size: 12px; color: #666; margin-top: 10px;">
-            チャプターボタンはクリックしてジャンプできます。プレイヤー下部にも同様のボタンがあります。
+            <div style="font-size: 14px; color: #666; margin-top: 15px; padding: 10px; background-color: #f8f9fa; border-radius: 5px;">
+            <b>ヒント:</b> 動画プレイヤー下部にもチャプターボタンがあり、再生中にクリックして移動できます。
             </div>
             """, unsafe_allow_html=True)
         else:
@@ -484,16 +422,19 @@ with tabs[1]:
         
         # 検索結果の表示
         if search_results:
-            # コメント頻度グラフの表示
-            from components.metrics_graph import display_search_graph
-            
-            st.subheader("検索語の出現頻度")
-            clicked_time_search = display_search_graph(comment_hist_data, search_terms, current_time)
-            
-            # グラフがクリックされた場合はシークは既にdisplay_search_graph内で処理されている
-            # if clicked_time_search is not None:
-            #     # 修正済み - metrics_graph.py内でseek_to関数を使用している
-            #     pass
+            # コメント頻度グラフをメトリクスに統合（オプション）
+            with st.expander("検索語の出現頻度グラフ", expanded=True):
+                from components.metrics_graph import display_search_graph
+                
+                st.subheader("検索語の出現頻度")
+                clicked_time_search = display_search_graph(comment_hist_data, search_terms, current_time)
+                
+                # 説明を追加
+                st.markdown("""
+                <div style="font-size: 12px; color: #666; margin-top: 5px;">
+                グラフはメトリクスグラフと同期しています。クリックで動画の該当位置に移動できます。
+                </div>
+                """, unsafe_allow_html=True)
             
             # ソート
             results_df = pd.DataFrame(search_results)
@@ -504,41 +445,89 @@ with tabs[1]:
                     if 'score' in results_df.columns:
                         results_df = results_df.sort_values('score', ascending=False)
                 
-                # 検索結果一覧の表示
+                # 検索結果一覧の表示 - 改善されたUIで表示
                 st.subheader(f"検索結果 ({len(results_df)}件)")
                 
-                for _, comment in results_df.iterrows():
-                    col1, col2, col3 = st.columns([2, 9, 1])
+                # ページネーションを追加して表示を制限
+                items_per_page = 20
+                total_pages = (len(results_df) + items_per_page - 1) // items_per_page
+                
+                # セッション状態の初期化
+                if 'comment_search_page' not in st.session_state:
+                    st.session_state['comment_search_page'] = 0
+                
+                # 現在のページ
+                current_page = st.session_state['comment_search_page']
+                
+                # 表示するデータの範囲
+                start_idx = current_page * items_per_page
+                end_idx = min(start_idx + items_per_page, len(results_df))
+                
+                # 検索結果を表示
+                for i, (_, comment) in enumerate(results_df.iloc[start_idx:end_idx].iterrows(), start=start_idx):
+                    # 情報とボタンを統合した改良版レイアウト
+                    col1, col2 = st.columns([11, 1])
                     
                     with col1:
                         time_str = format_time(comment['time_seconds'])
-                        st.markdown(f"**{time_str}**")
-                        if 'author' in comment:
-                            st.caption(comment['author'])
+                        
+                        # 投稿者情報と時間をヘッダーに
+                        author = comment.get('author', comment.get('name', ''))
+                        header = f"**{time_str}**" + (f" - {author}" if author else "")
+                        st.markdown(header)
+                        
+                        # メッセージ内容（検索語をハイライト）
+                        message = comment['message']
+                        for term in search_terms:
+                            if term.lower() in message.lower():
+                                # 大文字小文字を区別しないハイライト
+                                import re
+                                pattern = re.compile(re.escape(term), re.IGNORECASE)
+                                matches = list(pattern.finditer(message))
+                                # 後ろから処理して位置がずれないように
+                                for match in reversed(matches):
+                                    start, end = match.span()
+                                    match_text = message[start:end]
+                                    message = message[:start] + f"**{match_text}**" + message[end:]
+                                    
+                        # 検索語をハイライトしたメッセージを表示
+                        st.markdown(f"<div style='margin-left: 20px;'>{message}</div>", unsafe_allow_html=True)
+                        
+                        # 一致した検索語の情報を追加
+                        if 'matched_terms' in comment and comment['matched_terms']:
+                            matched_terms = ", ".join(comment['matched_terms'])
+                            st.markdown(f"<div style='margin-left: 20px; font-size: 0.8em; color: #666;'>一致: {matched_terms}</div>", unsafe_allow_html=True)
                     
                     with col2:
-                        message = comment['message']
-                        # 検索語をハイライト
-                        for term in search_terms:
-                            if term in message:
-                                message = message.replace(term, f"**{term}**")
-                        st.markdown(message)
-                    
-                    with col3:
-                        if st.button("▶️", key=f"comment_{comment['id']}"):
-                            # 一時変数に保存してから、seek_to関数を呼び出す
+                        # ジャンプボタン
+                        if st.button("▶️", key=f"comment_{i}_{comment.get('id', i)}", help=f"{time_str}にジャンプ"):
                             comment_time = float(comment['time_seconds'])
                             print(f"コメント再生ボタンがクリックされました: {comment_time}秒")
-                            # 関数呼び出し前にすべてのシーク関連セッション変数をクリア
                             for key in ['_seek_sec', 'sec', '_force_reload']:
                                 if key in st.session_state:
                                     del st.session_state[key]
-                            # seek_to関数を直接呼び出し
                             seek_to(comment_time)
-                            # 即座に再読み込み
                             st.rerun()
                     
-                    st.markdown("---")
+                    # 細いセパレーター
+                    st.markdown("<hr style='margin: 10px 0; border-top: 1px solid #eee;'>", unsafe_allow_html=True)
+                
+                # ページネーションコントロール
+                if total_pages > 1:
+                    col1, col2, col3 = st.columns([1, 3, 1])
+                    
+                    with col1:
+                        if st.button("◀ 前のページ", key="prev_comment_page", disabled=current_page == 0):
+                            st.session_state['comment_search_page'] = max(0, current_page - 1)
+                            st.rerun()
+                    
+                    with col2:
+                        st.markdown(f"<div style='text-align: center;'>ページ {current_page + 1}/{total_pages}</div>", unsafe_allow_html=True)
+                    
+                    with col3:
+                        if st.button("次のページ ▶", key="next_comment_page", disabled=current_page >= total_pages - 1):
+                            st.session_state['comment_search_page'] = min(total_pages - 1, current_page + 1)
+                            st.rerun()
             else:
                 st.info("検索条件に一致するコメントがありませんでした。")
         else:
