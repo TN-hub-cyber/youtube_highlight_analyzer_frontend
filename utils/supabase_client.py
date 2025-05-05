@@ -408,7 +408,7 @@ def get_comments(video_id):
             
         # 数値IDの場合はそのまま使う
         if is_numeric:
-            response = supabase.table("chat_messages").select("*").eq("video_id", numeric_id).order("time_seconds").execute()
+            response = supabase.table("chat_messages").select("*").eq("video_id", numeric_id).gte("time_seconds", 0).order("time_seconds").execute()
             if response.data and len(response.data) > 0:
                 return response.data
                 
@@ -418,7 +418,7 @@ def get_comments(video_id):
             detail_resp = supabase.table("videos").select("id").eq("video_id", str(video_id)).limit(1).execute()
             if detail_resp.data and len(detail_resp.data) > 0:
                 internal_id = detail_resp.data[0]['id']
-                response = supabase.table("chat_messages").select("*").eq("video_id", internal_id).order("time_seconds").execute()
+                response = supabase.table("chat_messages").select("*").eq("video_id", internal_id).gte("time_seconds", 0).order("time_seconds").execute()
                 if response.data:
                     return response.data
                     

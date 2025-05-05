@@ -554,10 +554,10 @@ with tabs[1]:
             
             if not comments_df.empty:
                 # 時間順にソート
-                comments_df = comments_df.sort_values('time_seconds')
+                # comments_df = comments_df.sort_values('time_seconds')
                 
-                # 最新のコメントを表示するため、時間の降順にソート
-                comments_df = comments_df.sort_values('time_seconds', ascending=False)
+                # 時間の昇順にソート(データ取得時に昇順でとってきてるが念のため)
+                comments_df = comments_df.sort_values('time_seconds', ascending=True)
                 
                 # コメント一覧の表示（最大100件）
                 max_comments = min(100, len(comments_df))
