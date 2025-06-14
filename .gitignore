@@ -11,6 +11,7 @@ __pycache__/
 document/
 memory-bank/
 components/__pycache__/
+utils/__pycache__/
 
 # その他の設定ファイルやデバッグファイル
 debug_*.py
