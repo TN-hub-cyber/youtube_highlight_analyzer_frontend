@@ -227,7 +227,7 @@ with col2:
     - GitLab CI/CD・Docker・SonarQube  
     - AWS（ECS／ALB／Cognito ほか）  
     - 簿記・会計インストラクター経験
-    - PMP（Project Management Professional）インストラクター経験※PMP資格保持
+    - PMPインストラクター経験 ※Project Management Professional資格保持
     """)
 
 # -------------------- 連絡先 -------------------------
