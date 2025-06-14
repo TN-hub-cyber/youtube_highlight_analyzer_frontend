@@ -226,7 +226,7 @@ with col2:
     - Python・Streamlit・Supabase・PostgreSQL  
     - GitLab CI/CD・Docker・SonarQube  
     - AWS（ECS／ALB／Cognito ほか）  
-    - 簿記・会計インストラクター経験
+    - 簿記・会計インストラクター経験 ※簿記2級保持、財務報告実務者検定合格
     - PMPインストラクター経験 ※Project Management Professional資格保持
     """)
 
