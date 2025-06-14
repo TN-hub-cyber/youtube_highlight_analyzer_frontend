@@ -63,35 +63,42 @@ st.markdown(f"### 全 {len(filtered_channels)} チャンネル")
 
 # チャンネル一覧表示
 if not filtered_channels.empty:
-    # 3列のグリッドレイアウトでチャンネルを表示
-    cols = st.columns(3)
+    # テーブルヘッダー
+    header_cols = st.columns([3, 5, 1, 1])
+    header_cols[0].markdown("#### チャンネル名")
+    header_cols[1].markdown("#### 説明")
+    header_cols[2].markdown("#### 動画数")
+    header_cols[3].markdown("#### アクション")
+    st.markdown("---")  # ヘッダーとデータの区切り線
     
-    for i, (_, channel) in enumerate(filtered_channels.iterrows()):
-        col_idx = i % 3
+    # チャンネル一覧を表形式で表示
+    for _, channel in filtered_channels.iterrows():
+        cols = st.columns([3, 5, 1, 1])
         
-        with cols[col_idx]:
-            with st.container():
-                st.markdown(f"#### {channel['title']}")
-                
-                # チャンネルの説明（最初の100文字まで）
-                description = channel.get('description', '')
-                if description:
-                    short_desc = description[:100] + ('...' if len(description) > 100 else '')
-                    st.markdown(f"*{short_desc}*")
-                
-                # チャンネルの動画数
-                video_count = channel.get('video_count', '不明')
-                st.markdown(f"**動画数**: {video_count}")
-                
-                # チャンネル選択ボタン
-                if st.button("選択", key=f"select_channel_{channel['id']}"):
-                    # セッション状態にチャンネルIDを保存
-                    st.session_state['cid'] = channel['id']
-                    
-                    # 動画一覧ページに遷移
-                    st.switch_page("pages/01_Videos.py")
-                
-                st.markdown("---")
+        # チャンネル名
+        cols[0].markdown(f"**{channel['title']}**")
+        
+        # チャンネルの説明（最初の100文字まで）
+        description = channel.get('description', '')
+        if description:
+            short_desc = description[:100] + ('...' if len(description) > 100 else '')
+            cols[1].markdown(f"{short_desc}")
+        else:
+            cols[1].markdown("*説明なし*")
+        
+        # チャンネルの動画数
+        video_count = channel.get('video_count', '不明')
+        cols[2].markdown(f"{video_count}")
+        
+        # チャンネル選択ボタン
+        if cols[3].button("選択", key=f"select_channel_{channel['id']}"):
+            # セッション状態にチャンネルIDを保存
+            st.session_state['cid'] = channel['id']
+            
+            # 動画一覧ページに遷移
+            st.switch_page("pages/01_Videos.py")
+        
+        st.markdown("---")  # 各行の区切り線
 
 else:
     st.info("条件に一致するチャンネルがありません。検索条件を変更してください。")
