@@ -219,7 +219,7 @@ with col2:
 - **実績ハイライト**  
     - 食品製造・不動産向け **会計／連結会計／電子帳票／経費精算／人事** など
       大規模基幹システムを PM として統括
-    - BIツールを用いたデータ分析(Power BI, Tableau, SSMS/SSAS etc.)
+    - BIツールを用いたデータ分析システム構築(Power BI, Tableau, Microsoft SSMS/SSAS etc.)
     - GitLab CI/CD＋SonarQube で Java／Next.js プロジェクトの品質ゲート導入  
     - **YouTube ハイライト自動生成サービス** を個人開発  
 - **スキルセット**  
