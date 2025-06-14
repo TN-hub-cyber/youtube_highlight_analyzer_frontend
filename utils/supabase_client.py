@@ -5,23 +5,31 @@ from supabase import create_client
 import streamlit as st
 # 循環インポートを避けるため、クライアントサイド実装の直接インポートを削除
 
-# プロジェクトルートの絶対パスを取得
-project_root = pathlib.Path(__file__).parent.parent.absolute()
+try:
+    SUPABASE_URL = st.secrets["supabase"]["SUPABASE_URL"]
+    SUPABASE_KEY = st.secrets["supabase"]["SUPABASE_KEY"]
+except AttributeError:
+    # ローカル用 fallback
+    from dotenv import load_dotenv
+    import pathlib
 
-# .envファイルの絶対パスを指定して読み込む
-dotenv_path = project_root / '.env'
-load_dotenv(dotenv_path=str(dotenv_path))
+    project_root = pathlib.Path(__file__).parent.parent.absolute()
+    dotenv_path = project_root / '.env'
+    load_dotenv(dotenv_path=str(dotenv_path))
 
-# 環境変数から接続情報を取得
-SUPABASE_URL = os.getenv("SUPABASE_URL")
-SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+    SUPABASE_URL = os.getenv("SUPABASE_URL")
+    SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
 # 環境変数が取得できない場合、ハードコードされた値をバックアップとして使用
 # 本番環境では使用しないことが推奨されますが、開発環境では便利です
 if not SUPABASE_URL or not SUPABASE_KEY:
+    print("環境変数が設定されていません")
+    print(f"SUPABASE_URL: {SUPABASE_URL}")
+    print(f"SUPABASE_KEY: {SUPABASE_KEY}")
+
     # プロジェクトで提供された接続情報をフォールバックとして使用
-    SUPABASE_URL = "https://crzdckxjivovcvtnrmwg.supabase.co"
-    SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyemRja3hqaXZvdmN2dG5ybXdnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDUxMzc3NzEsImV4cCI6MjA2MDcxMzc3MX0.mfvta0xzbnTc_PQWlIb9mSvBUr4c7GsNZydV7vgAKsQ"
+    #SUPABASE_URL = "https://crzdckxjivovcvtnrmwg.supabase.co"
+    #SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyemRja3hqaXZvdmN2dG5ybXdnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDUxMzc3NzEsImV4cCI6MjA2MDcxMzc3MX0.mfvta0xzbnTc_PQWlIb9mSvBUr4c7GsNZydV7vgAKsQ"
 
 def show_connection_error(st):
     """
