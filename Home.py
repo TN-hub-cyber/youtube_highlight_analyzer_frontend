@@ -78,6 +78,12 @@ if not filtered_channels.empty:
         # チャンネル名
         cols[0].markdown(f"**{channel['title']}**")
         
+        # サムネイル画像
+        if 'thumbnail_url' in channel and channel['thumbnail_url']:
+            cols[0].image(channel['thumbnail_url'], width=70)
+        else:
+            cols[0].markdown("*No Image*")
+        
         # チャンネルの説明（最初の100文字まで）
         description = channel.get('description', '')
         if description:
