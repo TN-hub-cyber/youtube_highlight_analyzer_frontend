@@ -12,7 +12,8 @@ from utils.supabase_client import (
     get_emotion_analysis,
     get_multi_term_comment_hist,
     search_comments_multi,
-    get_volume_analysis_secondly
+    get_volume_analysis_secondly,
+    get_highlight_segments
 )
 from utils.formatting import format_time
 
@@ -263,7 +264,7 @@ if 'active_tab' not in st.session_state:
     st.session_state['active_tab'] = 0  # デフォルトはチャプタータブ(0)
 
 # タブ切り替え機能
-tab_names = ["📑 チャプター", "💬 コメント", "📝 文字起こし", "😊 感情分析"]
+tab_names = ["📑 チャプター", "💬 コメント", "📝 文字起こし", "😊 感情分析", "✨ ハイライト"]
 tabs = st.tabs(tab_names)
 
 # コントロールパネルからの検索をハンドリング
@@ -934,3 +935,130 @@ with tabs[3]:
             """)
     else:
         st.info("この動画には感情分析データがありません。")
+
+# タブ5: ハイライト
+with tabs[4]:
+    # このタブが選択されたら状態を更新
+    st.session_state['active_tab'] = 4
+    st.header("ハイライト")
+    
+    with st.spinner("ハイライトデータを読み込み中..."):
+        highlight_data = get_highlight_segments(video_id)
+    
+    if highlight_data:
+        # ハイライトデータを表示
+        st.subheader(f"ハイライトセグメント ({len(highlight_data)}件)")
+        
+        # ページネーション状態の初期化
+        if 'highlight_page' not in st.session_state:
+            st.session_state['highlight_page'] = 0
+        
+        # 1ページあたりの表示件数
+        items_per_page = 10
+        
+        # 総ページ数の計算
+        total_items = len(highlight_data)
+        total_pages = (total_items + items_per_page - 1) // items_per_page  # 切り上げ除算
+        
+        # 現在のページ
+        current_page = st.session_state['highlight_page']
+        
+        # ページが範囲外にならないように調整
+        if current_page >= total_pages:
+            st.session_state['highlight_page'] = total_pages - 1
+            current_page = total_pages - 1
+        
+        # 現在のページのデータを取得
+        start_idx = current_page * items_per_page
+        end_idx = min(start_idx + items_per_page, total_items)
+        page_data = highlight_data[start_idx:end_idx]
+        
+        # 各ハイライトセグメントを表示
+        for i, highlight in enumerate(page_data):
+            # 左右のレイアウト
+            col1, col2 = st.columns([10, 2])
+            
+            with col1:
+                # 時間情報
+                timestamp_start = highlight.get('timestamp_start', format_time(highlight['start_second']))
+                timestamp_end = highlight.get('timestamp_end', format_time(highlight['end_second']))
+                timestamp_peak = format_time(highlight['peak_second']) if 'peak_second' in highlight else ""
+                
+                # 時間表示
+                st.markdown(f"**時間**: {timestamp_start} → {timestamp_end} " + 
+                           (f"(ピーク: {timestamp_peak})" if timestamp_peak else ""))
+                
+                # 秒数情報
+                st.markdown(f"**秒数**: {highlight['start_second']} → {highlight['end_second']} " +
+                           (f"(ピーク: {highlight['peak_second']})" if 'peak_second' in highlight else ""))
+                
+                # スコア情報（プログレスバーで表示）
+                if 'peak_score' in highlight:
+                    score = highlight['peak_score']
+                    st.markdown(f"**スコア**: {score:.2f}")
+                    st.progress(min(score, 1.0))  # スコアが1.0を超える場合に対応
+                
+                # 理由フラグの表示（JSONBフィールド）
+                if 'reason_flags' in highlight and highlight['reason_flags']:
+                    try:
+                        import json
+                        if isinstance(highlight['reason_flags'], str):
+                            reason_flags = json.loads(highlight['reason_flags'])
+                        else:
+                            reason_flags = highlight['reason_flags']
+                            
+                        # 理由の表示
+                        reasons = []
+                        for key, value in reason_flags.items():
+                            if value:
+                                # キー名を読みやすく変換
+                                key_display = {
+                                    'volume': '音量上昇',
+                                    'comment': 'コメント急増',
+                                    'emotion': '感情検出',
+                                    'keyword': 'キーワード検出',
+                                    'manual': '手動設定'
+                                }.get(key, key)
+                                reasons.append(key_display)
+                        
+                        if reasons:
+                            st.markdown(f"**理由**: {', '.join(reasons)}")
+                    except Exception as e:
+                        st.markdown(f"**理由**: {str(highlight['reason_flags'])}")
+            
+            with col2:
+                # ジャンプボタン
+                st.markdown("<div style='margin-top: 20px;'></div>", unsafe_allow_html=True)
+                if st.button("▶️", key=f"highlight_{i}_{highlight.get('id', i)}", help=f"{timestamp_start}にジャンプ"):
+                    highlight_time = float(highlight['start_second'])
+                    print(f"ハイライトボタン{i}がクリックされました: {highlight_time}秒")
+                    # 関数呼び出し前にすべてのシーク関連セッション変数をクリア
+                    for key in ['_seek_sec', 'sec', '_force_reload']:
+                        if key in st.session_state:
+                            del st.session_state[key]
+                    # seek_to関数を直接呼び出し
+                    seek_to(highlight_time)
+                    # 即座に再読み込み
+                    st.rerun()
+            
+            # 区切り線
+            st.markdown("<hr style='margin: 10px 0; border-top: 1px solid #eee;'>", unsafe_allow_html=True)
+        
+        # ページネーションコントロール（ページ数が2以上の場合のみ表示）
+        if total_pages > 1:
+            col1, col2, col3 = st.columns([1, 3, 1])
+            
+            with col1:
+                if st.button("◀ 前へ", key="prev_highlight_page", disabled=current_page == 0):
+                    st.session_state['highlight_page'] = max(0, current_page - 1)
+                    st.rerun()
+            
+            with col2:
+                st.markdown(f"<div style='text-align: center;'>ページ {current_page + 1}/{total_pages}</div>", unsafe_allow_html=True)
+            
+            with col3:
+                if st.button("次へ ▶", key="next_highlight_page", disabled=current_page >= total_pages - 1):
+                    st.session_state['highlight_page'] = min(total_pages - 1, current_page + 1)
+                    st.rerun()
+    else:
+        st.info("この動画にはハイライトデータがありません。")

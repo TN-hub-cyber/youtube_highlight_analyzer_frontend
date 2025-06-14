@@ -465,3 +465,40 @@ def get_volume_analysis_secondly(video_id):
     except Exception as e:
         print(f"詳細音量分析データ取得エラー: {e}")
         return []
+
+@st.cache_data(ttl=60)
+def get_highlight_segments(video_id):
+    """ハイライトセグメント情報を取得"""
+    if supabase is None:
+        return []
+    try:
+        # 数値IDかどうかを判断
+        try:
+            numeric_id = int(video_id)
+            is_numeric = True
+        except (ValueError, TypeError):
+            is_numeric = False
+            
+        # 数値IDの場合はそのまま使う
+        if is_numeric:
+            response = supabase.table("highlight_segments").select("*").eq("video_id", numeric_id).order("start_second").execute()
+            if response.data and len(response.data) > 0:
+                return response.data
+                
+        # 文字列IDの場合は内部IDに変換して取得
+        if not is_numeric or (is_numeric and not response.data):
+            # 内部IDを取得
+            detail_resp = supabase.table("videos").select("id").eq("video_id", str(video_id)).limit(1).execute()
+            if detail_resp.data and len(detail_resp.data) > 0:
+                internal_id = detail_resp.data[0]['id']
+                response = supabase.table("highlight_segments").select("*").eq("video_id", internal_id).order("start_second").execute()
+                if response.data:
+                    return response.data
+                    
+        # 両方失敗した場合はデバッグ情報を出力
+        print(f"ハイライト情報が見つかりません: id={video_id}")
+        return []
+        
+    except Exception as e:
+        print(f"ハイライトデータ取得エラー: {e}")
+        return []
